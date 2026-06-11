@@ -287,6 +287,15 @@ def parse_response(raw: str) -> dict:
             outdated_reason = line.split(":", 1)[1].strip()
             break
 
+    # Strip any leaked OUTDATED_FLAG / OUTDATED_REASON lines from the answer
+    cleaned = []
+    for line in answer.splitlines():
+        upper = line.strip().upper()
+        if upper.startswith("OUTDATED_FLAG:") or upper.startswith("OUTDATED_reason:".upper()):
+            continue
+        cleaned.append(line)
+    answer = "\n".join(cleaned).strip()
+
     return {
         "answer":            answer,
         "possibly_outdated": possibly_outdated,

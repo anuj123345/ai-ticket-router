@@ -8,9 +8,17 @@ Requires .env with SUPABASE_URL, SUPABASE_KEY, NVIDIA_API_KEY.
 Documents must be uploaded first (upload sample_docs/ via /onboarding/admin).
 """
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Always resolve relative to this file, not the cwd
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
 from dotenv import load_dotenv
-load_dotenv()
+env_path = os.path.join(ROOT, ".env")
+loaded = load_dotenv(env_path, override=True)
+print(f"[DEBUG] .env path: {env_path}")
+print(f"[DEBUG] .env loaded: {loaded}")
+print(f"[DEBUG] SUPABASE_URL: {os.environ.get('SUPABASE_URL', 'NOT SET')[:40]}")
+print(f"[DEBUG] SUPABASE_KEY: {'SET' if os.environ.get('SUPABASE_KEY') else 'NOT SET'}")
 
 from services.onboarding_agent import (
     expand_query, extract_key_terms, search_doc_chunks, answer_question
