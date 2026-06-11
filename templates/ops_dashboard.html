@@ -84,6 +84,12 @@
         <!-- Question echoed back -->
         <div class="ops-question-echo" id="questionEcho"></div>
 
+        <!-- AI Summary -->
+        <div id="summaryBlock" class="ops-summary" style="display:none">
+          <div class="ops-summary-icon"><i class="bi bi-stars"></i></div>
+          <div id="summaryText" class="ops-summary-text"></div>
+        </div>
+
         <!-- SQL pill -->
         <details class="ops-sql-block" id="sqlBlock">
           <summary><i class="bi bi-code-slash me-1"></i>Generated SQL <span class="ops-sql-badge">click to expand</span></summary>
@@ -223,6 +229,15 @@ function renderResult(data, question) {
   }
 
   document.getElementById('errorBlock').style.display = 'none';
+
+  // AI Summary
+  const summaryBlock = document.getElementById('summaryBlock');
+  if (data.summary) {
+    document.getElementById('summaryText').textContent = data.summary;
+    summaryBlock.style.display = 'flex';
+  } else {
+    summaryBlock.style.display = 'none';
+  }
 
   // Stats strip
   const count = data.count || 0;

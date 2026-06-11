@@ -1178,3 +1178,28 @@ footer {
   width: auto;
   display: inline-flex;
 }
+
+/* ── Ops Summary card ── */
+.ops-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  background: linear-gradient(135deg, rgba(99,102,241,0.06) 0%, rgba(139,92,246,0.06) 100%);
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: var(--radius-lg);
+}
+
+.ops-summary-icon {
+  font-size: 1.125rem;
+  color: var(--primary);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.ops-summary-text {
+  font-size: 0.9375rem;
+  color: var(--text-1);
+  line-height: 1.6;
+  font-weight: 450;
+}

@@ -1,14 +1,14 @@
 """
 NL-to-SQL service for the Ops Dashboard.
 Converts natural language questions to PostgreSQL SELECT queries,
-executes them via Supabase RPC, and returns structured results.
+executes them via Supabase RPC, and returns structured results + AI summary.
 """
 import os
 import re
 from openai import OpenAI
 from models.db import get_client
 
-# ── Schema context fed to the LLM ──────────────────────────────────────────
+# ── Schema context ──────────────────────────────────────────────────────────
 
 SCHEMA = """
 Table: tickets (PostgreSQL)
@@ -33,7 +33,7 @@ Columns:
   resolved_at     TIMESTAMPTZ   When resolved (NULL if still open)
 """
 
-SYSTEM_PROMPT = f"""You are a PostgreSQL expert. Convert natural language questions into valid SELECT SQL queries.
+SQL_SYSTEM_PROMPT = f"""You are a PostgreSQL expert. Convert natural language questions into valid SELECT SQL queries.
 
 {SCHEMA}
 
@@ -46,6 +46,17 @@ Rules:
 - Limit results to 100 rows max unless the user asks for more.
 - If the question asks for a "breakdown" or "by X", use GROUP BY and COUNT(*).
 - Average resolution time = AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/3600) as avg_hours.
+"""
+
+SUMMARY_SYSTEM_PROMPT = """You are a concise data analyst helping a support operations team.
+Given a question, the SQL that answered it, and the result data, write a 2-3 sentence plain-English insight.
+
+Rules:
+- Lead with the most important number or finding.
+- Call out any anomalies, trends, or actionable observations.
+- Be direct. No filler phrases like "Based on the data..." or "It appears that...".
+- If the result is empty, say so clearly and suggest why.
+- Keep it under 60 words.
 """
 
 
@@ -62,21 +73,54 @@ def generate_sql(question: str) -> str:
     response = client.chat.completions.create(
         model=os.environ.get("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct"),
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": SQL_SYSTEM_PROMPT},
             {"role": "user",   "content": question},
         ],
         temperature=0.0,
         max_tokens=512,
     )
     raw = response.choices[0].message.content.strip()
-    # Strip markdown fences if the model adds them
     raw = re.sub(r"^```(?:sql)?\s*", "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\s*```$", "", raw)
     return raw.strip()
 
 
+def generate_summary(question: str, sql: str, columns: list, rows: list) -> str:
+    """Generate a plain-English summary of query results using the LLM."""
+    if not rows:
+        data_str = "The query returned no rows."
+    else:
+        # Format top 20 rows as a compact table string
+        header = " | ".join(columns)
+        lines  = [header, "-" * len(header)]
+        for row in rows[:20]:
+            lines.append(" | ".join(str(v) if v is not None else "NULL" for v in row))
+        if len(rows) > 20:
+            lines.append(f"... ({len(rows) - 20} more rows)")
+        data_str = "\n".join(lines)
+
+    user_msg = f"""Question: {question}
+
+SQL used:
+{sql}
+
+Result:
+{data_str}"""
+
+    client = _llm_client()
+    response = client.chat.completions.create(
+        model=os.environ.get("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct"),
+        messages=[
+            {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
+            {"role": "user",   "content": user_msg},
+        ],
+        temperature=0.3,
+        max_tokens=120,
+    )
+    return response.choices[0].message.content.strip()
+
+
 def is_safe_sql(sql: str) -> bool:
-    """Reject anything that isn't a plain SELECT."""
     upper = sql.strip().upper()
     if not upper.startswith("SELECT"):
         return False
@@ -89,7 +133,6 @@ def is_safe_sql(sql: str) -> bool:
 
 
 def execute_query(sql: str) -> dict:
-    """Run the SQL via Supabase RPC and return columns + rows."""
     client = get_client()
     resp = client.rpc("run_query", {"query_text": sql}).execute()
     rows = resp.data or []
@@ -104,7 +147,7 @@ def execute_query(sql: str) -> dict:
 
 
 def nl_query(question: str) -> dict:
-    """Full pipeline: question → SQL → execute → structured result."""
+    """Full pipeline: question → SQL → execute → summary → structured result."""
     try:
         sql = generate_sql(question)
     except Exception as e:
@@ -119,8 +162,17 @@ def nl_query(question: str) -> dict:
 
     try:
         result = execute_query(sql)
-        result["sql"]      = sql
-        result["question"] = question
-        return result
     except Exception as e:
         return {"error": str(e), "sql": sql, "question": question}
+
+    # Generate natural language summary
+    try:
+        result["summary"] = generate_summary(
+            question, sql, result["columns"], result["rows"]
+        )
+    except Exception:
+        result["summary"] = None  # non-fatal — UI hides it if missing
+
+    result["sql"]      = sql
+    result["question"] = question
+    return result
