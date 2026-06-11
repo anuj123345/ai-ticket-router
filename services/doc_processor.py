@@ -44,19 +44,48 @@ def extract_text(file_bytes: bytes, file_type: str) -> str:
 
 # ── Chunking ─────────────────────────────────────────────────────────────────
 
-def chunk_text(text: str, chunk_size: int = 350, overlap: int = 70) -> list[str]:
-    """Split text into overlapping word-based chunks."""
-    # Clean excessive whitespace
+def chunk_text(text: str, chunk_size: int = 350, overlap: int = 100) -> list[str]:
+    """
+    Split text into overlapping chunks, prepending the nearest section header
+    to each chunk so the LLM always knows which section it's reading.
+    """
+    # Normalise whitespace
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r" {2,}", " ", text)
-    words = text.split()
-    chunks, start = [], 0
-    while start < len(words):
-        end = min(start + chunk_size, len(words))
-        chunk = " ".join(words[start:end])
-        if len(chunk.strip()) > 40:   # skip tiny fragments
+
+    # Detect markdown / ALL-CAPS headers for context injection
+    header_pattern = re.compile(r'^(#{1,3} .+|[A-Z][A-Z &/\-]{4,})$', re.MULTILINE)
+
+    # Split into lines; track current section header
+    lines = text.splitlines()
+    current_header = ""
+    annotated_words = []  # (word, header_at_this_point)
+
+    for line in lines:
+        stripped = line.strip()
+        if header_pattern.match(stripped) and len(stripped) < 80:
+            current_header = stripped.lstrip('#').strip()
+        for word in stripped.split():
+            annotated_words.append((word, current_header))
+
+    chunks = []
+    start = 0
+    while start < len(annotated_words):
+        end = min(start + chunk_size, len(annotated_words))
+        segment_words  = [w for w, _ in annotated_words[start:end]]
+        segment_header = annotated_words[start][1]
+
+        chunk_body = " ".join(segment_words)
+        if len(chunk_body.strip()) > 40:
+            # Prepend section header so retrieval knows the topic
+            if segment_header and not chunk_body.startswith(segment_header):
+                chunk = f"[{segment_header}]\n{chunk_body}"
+            else:
+                chunk = chunk_body
             chunks.append(chunk)
+
         start += chunk_size - overlap
+
     return chunks
 
 

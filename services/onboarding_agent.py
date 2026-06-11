@@ -2,11 +2,14 @@
 Onboarding Agent — answers employee questions using uploaded company docs.
 Features:
   - PostgreSQL full-text search over doc_chunks
+  - Synonym expansion before search (handles PTO/vacation, remote/WFH, etc.)
+  - Multi-query retrieval — runs original + expanded queries, merges results
   - Verified Q&A pairs (from thumbs-up feedback) included in retrieval
   - Conversation memory (last N exchanges passed as context)
   - Outdated content detection
 """
 import os
+import re
 import json
 from openai import OpenAI
 from models.db import get_client
@@ -33,6 +36,108 @@ OUTDATED_REASON: reason if applicable
 """
 
 
+# ── Synonym dictionary ────────────────────────────────────────────────────────
+# Maps query terms → canonical doc terms to bridge semantic gaps in FTS.
+# Keys are patterns (lowercased), values are replacement/addition terms.
+
+SYNONYM_MAP = [
+    # PTO / leave
+    (r'\bpto\b',                         'vacation'),
+    (r'\btime off\b',                    'vacation leave'),
+    (r'\bdays off\b',                    'vacation days'),
+    (r'\bpaid leave\b',                  'vacation sick leave'),
+    (r'\bannual leave\b',                'vacation'),
+    # Sick leave
+    (r'\bsick day(s)?\b',               'sick leave'),
+    (r'\billness\b',                     'sick leave'),
+    # Remote / WFH
+    (r'\bwfh\b',                         'remote work'),
+    (r'\bwork from home\b',              'remote work'),
+    (r'\btelecommut\w+\b',               'remote work'),
+    (r'\bhybrid work\b',                 'remote work'),
+    # Parental leave
+    (r'\bmaternal(ity)?\b',              'parental leave'),
+    (r'\bpaternal(ity)?\b',              'parental leave'),
+    (r'\bbaby leave\b',                  'parental leave'),
+    (r'\bnewborn\b',                     'parental leave'),
+    (r'\badoption leave\b',              'parental leave'),
+    # Retirement / 401k
+    (r'\bretirement\b',                  '401k'),
+    (r'\bpension\b',                     '401k'),
+    (r'\bsavings plan\b',                '401k'),
+    (r'\bcompany match\b',               '401k'),
+    # Health insurance
+    (r'\bmedical(ly)?\b',                'health insurance'),
+    (r'\bhealthcare\b',                  'health insurance'),
+    (r'\bmedical coverage\b',            'health insurance'),
+    (r'\bhealth (benefit|plan|cover)\b', 'health insurance'),
+    (r'\bdental\b',                      'health insurance dental'),
+    (r'\bvision (coverage|plan|benefit)',  'health insurance vision'),
+    # Expenses
+    (r'\breimburse(ment)?\b',            'expense reimbursement'),
+    (r'\bspend\b',                       'expense reimbursement'),
+    (r'\breceipt\b',                     'expense reimbursement'),
+    # Performance / review
+    (r'\bperformance review\b',          'performance review promotion'),
+    (r'\bpromotion\b',                   'performance review promotion'),
+    (r'\bsalary review\b',               'performance review'),
+    (r'\bpay rise\b',                    'performance review salary'),
+    (r'\braise\b',                       'performance review salary'),
+    # Probation
+    (r'\btrial period\b',                'probation'),
+    (r'\bprobationary\b',                'probation'),
+    # IT / laptop
+    (r'\blaptop setup\b',                'laptop setup IT'),
+    (r'\bgetting started\b',             'laptop setup access'),
+    (r'\bnew employee setup\b',          'laptop access IT'),
+    # Learning & development
+    (r'\btraining budget\b',             'learning development L&D'),
+    (r'\bl&d\b',                         'learning development'),
+    (r'\bcertification\b',               'learning development'),
+    (r'\bcourse(s)?\b',                  'learning development'),
+    # Referral
+    (r'\bemployee referral\b',           'referral bonus'),
+    (r'\brefer a friend\b',              'referral bonus'),
+    # Mental health / EAP
+    (r'\bmental health\b',               'mental health EAP therapy'),
+    (r'\btherapy\b',                     'mental health EAP'),
+    (r'\bcounseling\b',                  'mental health EAP'),
+    # Discipline / termination
+    (r'\bfired\b',                       'termination'),
+    (r'\bdismissal\b',                   'termination disciplinary'),
+    (r'\bwarning\b',                     'disciplinary warning'),
+    (r'\bpip\b',                         'performance improvement plan'),
+    # VPN / security
+    (r'\bvpn\b',                         'VPN remote access'),
+    (r'\bpassword\b',                    'security password'),
+    (r'\b2fa\b',                         'two-factor authentication'),
+]
+
+
+def expand_query(query: str) -> str:
+    """Apply synonym expansion to bridge FTS lexeme gaps."""
+    expanded = query.lower()
+    additions = []
+    for pattern, replacement in SYNONYM_MAP:
+        if re.search(pattern, expanded):
+            additions.append(replacement)
+    if additions:
+        return query + ' ' + ' '.join(additions)
+    return query
+
+
+def extract_key_terms(query: str) -> str:
+    """Pull nouns/keywords for a focused second-pass search."""
+    stop = {'what', 'is', 'the', 'how', 'do', 'i', 'can', 'get', 'my', 'a',
+            'an', 'are', 'was', 'were', 'will', 'to', 'for', 'of', 'in',
+            'on', 'at', 'with', 'and', 'or', 'about', 'me', 'we', 'our',
+            'us', 'have', 'has', 'does', 'did', 'be', 'been', 'there',
+            'when', 'where', 'which', 'who', 'that', 'this', 'if', 'from'}
+    words = re.findall(r'\b[a-zA-Z]\w+\b', query.lower())
+    key = [w for w in words if w not in stop and len(w) > 2]
+    return ' '.join(key[:6])  # top 6 content words
+
+
 def _llm() -> OpenAI:
     return OpenAI(
         base_url=os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
@@ -42,37 +147,102 @@ def _llm() -> OpenAI:
 
 # ── Retrieval ─────────────────────────────────────────────────────────────────
 
-def search_doc_chunks(question: str, max_results: int = 5) -> list[dict]:
-    """Full-text search over uploaded document chunks."""
+def _fts_search(query_text: str, max_results: int) -> list[dict]:
+    """Run a single FTS query via search_docs RPC."""
     client = get_client()
     try:
         resp = client.rpc("search_docs", {
-            "query_text":  question,
+            "query_text":  query_text,
             "max_results": max_results,
         }).execute()
         return resp.data or []
     except Exception:
-        # Fallback to ILIKE
-        words = question.split()[:4]
-        pattern = "%" + " ".join(words) + "%"
-        resp = (
-            client.table("doc_chunks")
-            .select("id, document_id, document_name, content")
-            .ilike("content", pattern)
-            .limit(max_results)
-            .execute()
-        )
-        return resp.data or []
+        return []
+
+
+def _ilike_fallback(query: str, max_results: int) -> list[dict]:
+    """Keyword-level ILIKE search — tries each significant word separately."""
+    client = get_client()
+    stop = {'what', 'is', 'the', 'how', 'do', 'i', 'can', 'get', 'my', 'a',
+            'an', 'are', 'to', 'for', 'of', 'in', 'on', 'at', 'and', 'or'}
+    words = [w for w in re.findall(r'\b[a-zA-Z]\w+\b', query.lower())
+             if w not in stop and len(w) > 3]
+
+    seen_ids = set()
+    results = []
+    for word in words[:4]:
+        try:
+            resp = (
+                client.table("doc_chunks")
+                .select("id, document_id, document_name, content")
+                .ilike("content", f"%{word}%")
+                .limit(max_results)
+                .execute()
+            )
+            for row in (resp.data or []):
+                if row['id'] not in seen_ids:
+                    seen_ids.add(row['id'])
+                    results.append(row)
+        except Exception:
+            continue
+        if len(results) >= max_results:
+            break
+    return results[:max_results]
+
+
+def search_doc_chunks(question: str, max_results: int = 5) -> list[dict]:
+    """
+    Multi-query retrieval:
+    1. Original question  → FTS
+    2. Synonym-expanded   → FTS
+    3. Key terms only     → FTS
+    4. ILIKE fallback on failure
+    Deduplicates by chunk ID, returns up to max_results.
+    """
+    # Three query variants
+    q_original = question
+    q_expanded = expand_query(question)
+    q_keywords = extract_key_terms(question)
+
+    seen_ids = set()
+    merged = []
+
+    def add_results(rows):
+        for row in rows:
+            if row.get('id') not in seen_ids:
+                seen_ids.add(row['id'])
+                merged.append(row)
+
+    # Pass 1: original query
+    add_results(_fts_search(q_original, max_results))
+
+    # Pass 2: synonym-expanded (only if different from original)
+    if q_expanded != q_original:
+        add_results(_fts_search(q_expanded, max_results))
+
+    # Pass 3: key terms only (catches cases where full phrase confuses FTS)
+    if q_keywords and q_keywords != q_original.lower():
+        add_results(_fts_search(q_keywords, max_results))
+
+    # Fallback to ILIKE if FTS returned nothing
+    if not merged:
+        add_results(_ilike_fallback(question, max_results))
+
+    return merged[:max_results * 2]  # return more chunks = more LLM context
 
 
 def search_verified_qa(question: str, max_results: int = 3) -> list[dict]:
     """Search the verified Q&A table built from thumbs-up feedback."""
     client = get_client()
     try:
+        # Try both original and expanded query
+        q_exp = expand_query(question)
+        search_term = q_exp if q_exp != question else question
+
         sql = (
             "SELECT question, answer, upvotes FROM verified_qa "
             "WHERE search_vector @@ websearch_to_tsquery('english', "
-            + repr(question) +
+            + repr(search_term) +
             ") ORDER BY upvotes DESC LIMIT " + str(max_results)
         )
         resp = client.rpc("run_query", {"query_text": sql}).execute()
@@ -87,9 +257,7 @@ def build_context(doc_chunks: list[dict], verified_qa: list[dict]) -> str:
     if verified_qa:
         parts.append("=== VERIFIED ANSWERS FROM PREVIOUS QUESTIONS ===")
         for qa in verified_qa:
-            parts.append(
-                f"Q: {qa['question']}\nA: {qa['answer']}"
-            )
+            parts.append(f"Q: {qa['question']}\nA: {qa['answer']}")
 
     if doc_chunks:
         parts.append("=== COMPANY DOCUMENTATION ===")
@@ -153,7 +321,7 @@ def answer_question(question: str, history: list[dict] | None = None) -> dict:
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     if history:
-        for turn in history[-5:]:           # keep last 5 exchanges
+        for turn in history[-5:]:
             messages.append({"role": "user",      "content": turn["question"]})
             messages.append({"role": "assistant", "content": turn["answer"]})
 
@@ -192,10 +360,7 @@ def answer_question(question: str, history: list[dict] | None = None) -> dict:
 
 
 def save_verified_qa(conversation_id: int):
-    """
-    Called when a user gives thumbs up.
-    Saves the Q&A pair to verified_qa, or increments upvotes if similar exists.
-    """
+    """Called on thumbs up — saves Q&A to verified_qa or increments upvotes."""
     db = get_client()
     conv = db.table("conversations").select("question, answer").eq("id", conversation_id).execute()
     if not conv.data:
@@ -204,7 +369,6 @@ def save_verified_qa(conversation_id: int):
     row = conv.data[0]
     q, a = row["question"], row["answer"]
 
-    # Check if this exact question already exists
     existing = db.table("verified_qa").select("id, upvotes").eq("question", q).execute()
     if existing.data:
         db.table("verified_qa").update({
