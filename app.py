@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from models.db import init_db, create_ticket, get_ticket, get_all_tickets, update_ticket_status, get_stats
 from services.classifier import classify_ticket, get_assignee
 from services.response_gen import generate_draft, format_full_response
+from services.nl_query import nl_query as run_nl_query
 
 load_dotenv()
 
@@ -25,7 +26,7 @@ app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-in-prod")
 init_db()
 
 
-# ─── Routes ──────────────────────────────────────────────────────────────────
+# ─── Ticket Routes ────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -35,47 +36,36 @@ def index():
 
 @app.route("/submit", methods=["POST"])
 def submit_ticket():
-    """
-    Handle ticket submission.
-    1. Classify the ticket (department + priority)
-    2. Generate a draft response using RAG
-    3. Save to DB
-    4. Redirect to human review page
-    """
-    subject = request.form.get("subject", "").strip()
+    subject     = request.form.get("subject",     "").strip()
     description = request.form.get("description", "").strip()
-    submitter = request.form.get("submitter", "").strip()
-    email = request.form.get("email", "").strip()
+    submitter   = request.form.get("submitter",   "").strip()
+    email       = request.form.get("email",       "").strip()
 
     if not all([subject, description, submitter, email]):
         flash("All fields are required.", "error")
         return redirect(url_for("index"))
 
     try:
-        # Step 1: Classify
         classification = classify_ticket(subject, description)
-        department = classification["department"]
-        assignee = get_assignee(department)
+        department     = classification["department"]
+        assignee       = get_assignee(department)
+        result         = generate_draft(subject, description, department, submitter)
 
-        # Step 2: Generate draft response
-        result = generate_draft(subject, description, department, submitter)
-
-        # Step 3: Save ticket
         ticket_id = create_ticket({
-            "subject": subject,
-            "description": description,
-            "submitter": submitter,
-            "email": email,
-            "department": department,
-            "priority": classification["priority"],
-            "confidence": classification["confidence"],
-            "reasoning": classification["reasoning"],
-            "assignee_team": assignee["team"],
+            "subject":        subject,
+            "description":    description,
+            "submitter":      submitter,
+            "email":          email,
+            "department":     department,
+            "priority":       classification["priority"],
+            "confidence":     classification["confidence"],
+            "reasoning":      classification["reasoning"],
+            "assignee_team":  assignee["team"],
             "assignee_email": assignee["email"],
             "assignee_slack": assignee["slack"],
             "draft_response": result["draft"],
-            "sources": json.dumps([s["source"] for s in result["sources"]]),
-            "status": "pending_review",
+            "sources":        json.dumps([s["source"] for s in result["sources"]]),
+            "status":         "pending_review",
         })
 
         return redirect(url_for("review_ticket", ticket_id=ticket_id))
@@ -87,7 +77,6 @@ def submit_ticket():
 
 @app.route("/review/<int:ticket_id>")
 def review_ticket(ticket_id: int):
-    """Human-in-the-loop review page: agent sees the draft and can edit before approving."""
     ticket = get_ticket(ticket_id)
     if not ticket:
         flash("Ticket not found.", "error")
@@ -105,7 +94,6 @@ def review_ticket(ticket_id: int):
 
 @app.route("/approve/<int:ticket_id>", methods=["POST"])
 def approve_ticket(ticket_id: int):
-    """Agent approves the draft (with optional edits) and marks ticket as resolved."""
     ticket = get_ticket(ticket_id)
     if not ticket:
         flash("Ticket not found.", "error")
@@ -129,7 +117,6 @@ def approve_ticket(ticket_id: int):
 
 @app.route("/reject/<int:ticket_id>", methods=["POST"])
 def reject_ticket(ticket_id: int):
-    """Mark ticket as needing escalation / manual handling."""
     update_ticket_status(ticket_id, status="escalated")
     flash(f"Ticket #{ticket_id} escalated for manual review.", "warning")
     return redirect(url_for("dashboard"))
@@ -137,21 +124,18 @@ def reject_ticket(ticket_id: int):
 
 @app.route("/dashboard")
 def dashboard():
-    """Ticket history and stats."""
     tickets = get_all_tickets(limit=100)
-    stats = get_stats()
+    stats   = get_stats()
     return render_template("dashboard.html", tickets=tickets, stats=stats)
 
 
 @app.route("/api/stats")
 def api_stats():
-    """JSON endpoint for stats (useful for future integrations)."""
     return jsonify(get_stats())
 
 
 @app.route("/ticket/<int:ticket_id>")
 def ticket_detail(ticket_id: int):
-    """View a single resolved ticket."""
     ticket = get_ticket(ticket_id)
     if not ticket:
         flash("Ticket not found.", "error")
@@ -163,6 +147,25 @@ def ticket_detail(ticket_id: int):
         except Exception:
             pass
     return render_template("review.html", ticket=ticket, sources=sources, readonly=True)
+
+
+# ─── Ops Dashboard Routes ─────────────────────────────────────────────────────
+
+@app.route("/ops")
+def ops_dashboard():
+    """AI Ops Dashboard — natural language analytics over ticket data."""
+    return render_template("ops_dashboard.html")
+
+
+@app.route("/ops/query", methods=["POST"])
+def ops_query():
+    """Execute a natural language query and return JSON results."""
+    data     = request.get_json(silent=True) or {}
+    question = data.get("question", "").strip()
+    if not question:
+        return jsonify({"error": "Question is required."}), 400
+    result = run_nl_query(question)
+    return jsonify(result)
 
 
 # ─── Run ─────────────────────────────────────────────────────────────────────

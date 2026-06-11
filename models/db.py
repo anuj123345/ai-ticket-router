@@ -1,131 +1,95 @@
 """
-Database models — uses SQLite via Python's built-in sqlite3.
-No ORM needed; keeps the project dependency-light.
+Database layer — Supabase (PostgreSQL via supabase-py v2).
+Replaces SQLite; data persists across Vercel cold starts.
 """
-
-import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+from supabase import create_client, Client
 
-# On Vercel, only /tmp is writable. Locally use the project folder.
-DB_PATH = os.environ.get(
-    "DB_PATH",
-    os.path.join(os.path.dirname(__file__), "..", "tickets.db")
-)
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+
+_client: Client | None = None
 
 
-def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row  # rows behave like dicts
-    return conn
+def get_client() -> Client:
+    global _client
+    if _client is None:
+        _client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    return _client
 
 
 def init_db():
-    """Create tables if they don't exist."""
-    conn = get_connection()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS tickets (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            subject     TEXT NOT NULL,
-            description TEXT NOT NULL,
-            submitter   TEXT NOT NULL,
-            email       TEXT NOT NULL,
-            department  TEXT,
-            priority    TEXT,
-            confidence  REAL,
-            reasoning   TEXT,
-            assignee_team   TEXT,
-            assignee_email  TEXT,
-            assignee_slack  TEXT,
-            draft_response  TEXT,
-            final_response  TEXT,
-            sources     TEXT,
-            status      TEXT DEFAULT 'pending_review',
-            created_at  TEXT DEFAULT (datetime('now')),
-            resolved_at TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+    """No-op: schema is managed via Supabase dashboard."""
+    pass
 
 
 def create_ticket(data: dict) -> int:
     """Insert a new ticket and return its ID."""
-    conn = get_connection()
-    cursor = conn.execute("""
-        INSERT INTO tickets (
-            subject, description, submitter, email,
-            department, priority, confidence, reasoning,
-            assignee_team, assignee_email, assignee_slack,
-            draft_response, sources, status
-        ) VALUES (
-            :subject, :description, :submitter, :email,
-            :department, :priority, :confidence, :reasoning,
-            :assignee_team, :assignee_email, :assignee_slack,
-            :draft_response, :sources, :status
-        )
-    """, data)
-    conn.commit()
-    ticket_id = cursor.lastrowid
-    conn.close()
-    return ticket_id
+    client = get_client()
+    response = client.table("tickets").insert(data).execute()
+    return response.data[0]["id"]
 
 
 def get_ticket(ticket_id: int) -> dict | None:
-    conn = get_connection()
-    row = conn.execute(
-        "SELECT * FROM tickets WHERE id = ?", (ticket_id,)
-    ).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    client = get_client()
+    response = (
+        client.table("tickets")
+        .select("*")
+        .eq("id", ticket_id)
+        .execute()
+    )
+    return response.data[0] if response.data else None
 
 
-def get_all_tickets(limit: int = 50) -> list[dict]:
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM tickets ORDER BY created_at DESC LIMIT ?", (limit,)
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+def get_all_tickets(limit: int = 100) -> list[dict]:
+    client = get_client()
+    response = (
+        client.table("tickets")
+        .select("*")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return response.data or []
 
 
 def update_ticket_status(ticket_id: int, status: str, final_response: str = None):
-    """Update ticket status and optionally set the final approved response."""
-    conn = get_connection()
+    """Update ticket status; optionally save the approved final response."""
+    client = get_client()
+    payload = {"status": status}
     if final_response:
-        conn.execute(
-            """UPDATE tickets
-               SET status = ?, final_response = ?, resolved_at = datetime('now')
-               WHERE id = ?""",
-            (status, final_response, ticket_id),
-        )
-    else:
-        conn.execute(
-            "UPDATE tickets SET status = ? WHERE id = ?",
-            (status, ticket_id),
-        )
-    conn.commit()
-    conn.close()
+        payload["final_response"] = final_response
+        payload["resolved_at"] = datetime.now(timezone.utc).isoformat()
+    client.table("tickets").update(payload).eq("id", ticket_id).execute()
 
 
 def get_stats() -> dict:
     """Return summary stats for the dashboard."""
-    conn = get_connection()
-    total = conn.execute("SELECT COUNT(*) FROM tickets").fetchone()[0]
-    by_dept = conn.execute(
-        "SELECT department, COUNT(*) as count FROM tickets GROUP BY department"
-    ).fetchall()
-    by_priority = conn.execute(
-        "SELECT priority, COUNT(*) as count FROM tickets GROUP BY priority"
-    ).fetchall()
-    by_status = conn.execute(
-        "SELECT status, COUNT(*) as count FROM tickets GROUP BY status"
-    ).fetchall()
-    conn.close()
+    client = get_client()
+    rows = (
+        client.table("tickets")
+        .select("department, priority, status")
+        .execute()
+        .data or []
+    )
+
+    total = len(rows)
+    by_dept: dict = {}
+    by_priority: dict = {}
+    by_status: dict = {}
+
+    for r in rows:
+        dept = r.get("department") or "Unknown"
+        pri  = r.get("priority")   or "Unknown"
+        stat = r.get("status")     or "Unknown"
+        by_dept[dept]         = by_dept.get(dept, 0) + 1
+        by_priority[pri]      = by_priority.get(pri, 0) + 1
+        by_status[stat]       = by_status.get(stat, 0) + 1
 
     return {
-        "total": total,
-        "by_department": {r["department"]: r["count"] for r in by_dept},
-        "by_priority": {r["priority"]: r["count"] for r in by_priority},
-        "by_status": {r["status"]: r["count"] for r in by_status},
+        "total":         total,
+        "by_department": by_dept,
+        "by_priority":   by_priority,
+        "by_status":     by_status,
     }

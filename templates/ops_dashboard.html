@@ -1,0 +1,336 @@
+{% extends "base.html" %}
+{% block title %}Ops Dashboard — AI Ticket Router{% endblock %}
+
+{% block content %}
+<div class="ops-wrap">
+
+  <!-- Page header -->
+  <div class="ops-header">
+    <div>
+      <h1 class="ops-title"><i class="bi bi-bar-chart-line-fill me-2"></i>Ops Dashboard</h1>
+      <p class="ops-subtitle">Ask anything about your ticket data in plain English</p>
+    </div>
+  </div>
+
+  <div class="ops-layout">
+
+    <!-- ── Left: suggested queries ──────────────────────────────────── -->
+    <aside class="ops-sidebar">
+      <div class="ops-sidebar-title">Suggested queries</div>
+      <div class="ops-suggestions">
+        <button class="ops-suggestion" onclick="askQuestion(this.dataset.q)"
+          data-q="How many tickets were submitted this week?">
+          <i class="bi bi-calendar-week"></i>
+          <span>Tickets this week</span>
+        </button>
+        <button class="ops-suggestion" onclick="askQuestion(this.dataset.q)"
+          data-q="Show ticket count by department">
+          <i class="bi bi-diagram-3"></i>
+          <span>Breakdown by department</span>
+        </button>
+        <button class="ops-suggestion" onclick="askQuestion(this.dataset.q)"
+          data-q="Show ticket count by priority">
+          <i class="bi bi-flag"></i>
+          <span>Breakdown by priority</span>
+        </button>
+        <button class="ops-suggestion" onclick="askQuestion(this.dataset.q)"
+          data-q="How many tickets are still pending review?">
+          <i class="bi bi-hourglass-split"></i>
+          <span>Pending review count</span>
+        </button>
+        <button class="ops-suggestion" onclick="askQuestion(this.dataset.q)"
+          data-q="What is the average AI confidence score by department?">
+          <i class="bi bi-graph-up"></i>
+          <span>Avg confidence by dept</span>
+        </button>
+        <button class="ops-suggestion" onclick="askQuestion(this.dataset.q)"
+          data-q="Show me critical and high priority tickets that are not yet resolved">
+          <i class="bi bi-exclamation-triangle"></i>
+          <span>Open critical tickets</span>
+        </button>
+        <button class="ops-suggestion" onclick="askQuestion(this.dataset.q)"
+          data-q="What is the average resolution time in hours for resolved tickets?">
+          <i class="bi bi-clock-history"></i>
+          <span>Avg resolution time</span>
+        </button>
+        <button class="ops-suggestion" onclick="askQuestion(this.dataset.q)"
+          data-q="Show ticket volume by day for the last 30 days">
+          <i class="bi bi-calendar3"></i>
+          <span>Volume last 30 days</span>
+        </button>
+        <button class="ops-suggestion" onclick="askQuestion(this.dataset.q)"
+          data-q="Which submitters have sent the most tickets?">
+          <i class="bi bi-person-lines-fill"></i>
+          <span>Top submitters</span>
+        </button>
+        <button class="ops-suggestion" onclick="askQuestion(this.dataset.q)"
+          data-q="Show escalated tickets ordered by creation date">
+          <i class="bi bi-arrow-up-right-circle"></i>
+          <span>Escalated tickets</span>
+        </button>
+      </div>
+
+      <!-- History -->
+      <div class="ops-sidebar-title mt-4">Recent queries</div>
+      <div id="queryHistory" class="ops-history"></div>
+    </aside>
+
+    <!-- ── Right: main content ──────────────────────────────────────── -->
+    <div class="ops-main">
+
+      <!-- Results area (hidden until first query) -->
+      <div id="resultsArea" style="display:none">
+
+        <!-- Question echoed back -->
+        <div class="ops-question-echo" id="questionEcho"></div>
+
+        <!-- SQL pill -->
+        <details class="ops-sql-block" id="sqlBlock">
+          <summary><i class="bi bi-code-slash me-1"></i>Generated SQL <span class="ops-sql-badge">click to expand</span></summary>
+          <pre id="sqlPre" class="ops-sql-pre"></pre>
+        </details>
+
+        <!-- Error state -->
+        <div id="errorBlock" class="ops-error" style="display:none">
+          <i class="bi bi-exclamation-circle-fill me-2"></i>
+          <span id="errorMsg"></span>
+        </div>
+
+        <!-- Stats strip -->
+        <div id="statsStrip" class="ops-stats-strip" style="display:none">
+          <span id="rowCount" class="ops-row-count"></span>
+        </div>
+
+        <!-- Chart -->
+        <div id="chartWrap" class="ops-chart-wrap" style="display:none">
+          <canvas id="opsChart"></canvas>
+        </div>
+
+        <!-- Table -->
+        <div id="tableWrap" class="ops-table-wrap" style="display:none">
+          <div class="table-responsive">
+            <table class="table ops-table" id="resultsTable">
+              <thead id="tableHead"></thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Empty state (shown before first query) -->
+      <div class="ops-empty" id="emptyState">
+        <div class="ops-empty-icon"><i class="bi bi-chat-square-dots"></i></div>
+        <div class="ops-empty-title">Ask a question about your tickets</div>
+        <div class="ops-empty-sub">Type below or pick a suggestion on the left. AI writes the SQL, runs it, and charts the result.</div>
+      </div>
+
+      <!-- Loading spinner -->
+      <div class="ops-loading" id="opsLoading" style="display:none">
+        <div class="ops-loading-inner">
+          <div class="ops-spinner"></div>
+          <div>
+            <div class="ops-loading-title">Generating SQL &amp; querying database…</div>
+            <div class="ops-loading-sub">Using NVIDIA NIM + Supabase</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input bar (always visible) -->
+      <div class="ops-input-bar">
+        <div class="ops-input-wrap">
+          <i class="bi bi-search ops-input-icon"></i>
+          <input
+            type="text"
+            id="nlInput"
+            class="ops-input"
+            placeholder="e.g. How many open IT tickets are critical?"
+            autocomplete="off"
+          />
+          <button id="runBtn" class="ops-run-btn" onclick="runQuery()">
+            <i class="bi bi-send-fill"></i>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let opsChart = null;
+const history = [];
+
+document.getElementById('nlInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') runQuery();
+});
+
+function askQuestion(q) {
+  document.getElementById('nlInput').value = q;
+  runQuery();
+}
+
+async function runQuery() {
+  const input = document.getElementById('nlInput');
+  const question = input.value.trim();
+  if (!question) return;
+
+  // UI state
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('resultsArea').style.display = 'none';
+  document.getElementById('opsLoading').style.display = 'flex';
+  document.getElementById('runBtn').disabled = true;
+
+  try {
+    const res = await fetch('/ops/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    });
+    const data = await res.json();
+    renderResult(data, question);
+    addToHistory(question);
+  } catch (err) {
+    renderResult({ error: 'Network error: ' + err.message, question }, question);
+  } finally {
+    document.getElementById('opsLoading').style.display = 'none';
+    document.getElementById('runBtn').disabled = false;
+  }
+}
+
+function renderResult(data, question) {
+  document.getElementById('resultsArea').style.display = 'block';
+  document.getElementById('questionEcho').textContent = question;
+
+  // SQL
+  if (data.sql) {
+    document.getElementById('sqlPre').textContent = data.sql;
+    document.getElementById('sqlBlock').style.display = '';
+  } else {
+    document.getElementById('sqlBlock').style.display = 'none';
+  }
+
+  // Error
+  if (data.error) {
+    document.getElementById('errorBlock').style.display = 'flex';
+    document.getElementById('errorMsg').textContent = data.error;
+    document.getElementById('statsStrip').style.display = 'none';
+    document.getElementById('chartWrap').style.display = 'none';
+    document.getElementById('tableWrap').style.display = 'none';
+    return;
+  }
+
+  document.getElementById('errorBlock').style.display = 'none';
+
+  // Stats strip
+  const count = data.count || 0;
+  document.getElementById('rowCount').textContent =
+    count === 0 ? 'No rows returned' :
+    count === 1 ? '1 row returned' : `${count} rows returned`;
+  document.getElementById('statsStrip').style.display = 'flex';
+
+  // Chart (only if 2 columns and at least 1 numeric)
+  const cols = data.columns || [];
+  const rows = data.rows   || [];
+  const shouldChart = cols.length === 2 && rows.length > 0 && rows.length <= 50;
+
+  if (shouldChart) {
+    const labels  = rows.map(r => String(r[0] ?? 'null'));
+    const values  = rows.map(r => parseFloat(r[1]) || 0);
+    const isDate  = labels.some(l => /^\d{4}-\d{2}-\d{2}/.test(l));
+    renderChart(labels, values, cols[0], cols[1], isDate ? 'line' : 'bar');
+    document.getElementById('chartWrap').style.display = 'block';
+  } else {
+    document.getElementById('chartWrap').style.display = 'none';
+    if (opsChart) { opsChart.destroy(); opsChart = null; }
+  }
+
+  // Table
+  renderTable(cols, rows);
+  document.getElementById('tableWrap').style.display = rows.length > 0 ? 'block' : 'none';
+}
+
+function renderChart(labels, values, xLabel, yLabel, type) {
+  if (opsChart) opsChart.destroy();
+  const ctx = document.getElementById('opsChart').getContext('2d');
+
+  const palette = [
+    'rgba(99,102,241,0.85)', 'rgba(139,92,246,0.85)', 'rgba(236,72,153,0.85)',
+    'rgba(59,130,246,0.85)', 'rgba(16,185,129,0.85)', 'rgba(245,158,11,0.85)',
+    'rgba(239,68,68,0.85)',  'rgba(20,184,166,0.85)',
+  ];
+
+  const colors = type === 'bar'
+    ? labels.map((_, i) => palette[i % palette.length])
+    : 'rgba(99,102,241,0.85)';
+
+  opsChart = new Chart(ctx, {
+    type,
+    data: {
+      labels,
+      datasets: [{
+        label: yLabel,
+        data: values,
+        backgroundColor: colors,
+        borderColor: type === 'line' ? 'rgba(99,102,241,1)' : colors,
+        borderWidth: type === 'line' ? 2 : 0,
+        borderRadius: type === 'bar' ? 6 : 0,
+        tension: 0.4,
+        fill: type === 'line',
+        maxBarThickness: 56,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: { mode: 'index', intersect: false },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { size: 12 }, maxRotation: 45 },
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: 'rgba(0,0,0,0.04)' },
+          ticks: { precision: 0, font: { size: 12 } },
+        },
+      },
+    },
+  });
+}
+
+function renderTable(cols, rows) {
+  const head = document.getElementById('tableHead');
+  const body = document.getElementById('tableBody');
+
+  head.innerHTML = '<tr>' + cols.map(c =>
+    `<th>${c}</th>`
+  ).join('') + '</tr>';
+
+  body.innerHTML = rows.map(row =>
+    '<tr>' + row.map((cell, i) => {
+      const val = cell === null ? '<span class="text-muted">—</span>' : escHtml(String(cell));
+      return `<td>${val}</td>`;
+    }).join('') + '</tr>'
+  ).join('') || '<tr><td colspan="' + cols.length + '" class="text-center text-muted py-4">No data</td></tr>';
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function addToHistory(question) {
+  history.unshift(question);
+  if (history.length > 10) history.pop();
+  const el = document.getElementById('queryHistory');
+  el.innerHTML = history.map(q =>
+    `<button class="ops-history-item" onclick="askQuestion(${JSON.stringify(q)})">${escHtml(q)}</button>`
+  ).join('');
+}
+</script>
+{% endblock %}
