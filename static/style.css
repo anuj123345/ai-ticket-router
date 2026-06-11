@@ -773,3 +773,11 @@ footer {
 
 /* Chart canvas constraint */
 .chart-card canvas { max-height: 220px; }
+
+/* Empty state button fix */
+.empty-state .btn {
+  padding: 0.5rem 1.25rem;
+  font-size: 0.875rem;
+  width: auto;
+  display: inline-flex;
+}
