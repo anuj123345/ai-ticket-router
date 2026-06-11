@@ -100,10 +100,10 @@
             data-search="{{ ticket.subject|lower }} {{ ticket.submitter|lower }} {{ ticket.description|lower }}">
           <td style="color:var(--text-3);font-size:0.75rem">{{ ticket.id }}</td>
           <td>
-            <div class="ticket-subject">{{ ticket.subject[:55] }}{% if ticket.subject|length > 55 %}…{% endif %}</div>
+            <div class="ticket-subject">{{ ticket.subject[:55] }}{% if ticket.subject|length > 55 %}...{% endif %}</div>
             <div class="ticket-from">{{ ticket.submitter }}</div>
           </td>
-          <td style="font-size:0.8125rem;color:var(--text-2)">{{ ticket.email[:24] }}{% if ticket.email|length > 24 %}…{% endif %}</td>
+          <td style="font-size:0.8125rem;color:var(--text-2)">{{ ticket.email[:24] }}{% if ticket.email|length > 24 %}...{% endif %}</td>
           <td>
             <span class="badge badge-dept">
               <i class="bi bi-{{ dept_icon.get(ticket.department, 'question-circle') }}"></i>
@@ -112,4 +112,110 @@
           </td>
           <td><span class="badge badge-{{ priority_map.get(ticket.priority, 'low') }}">{{ ticket.priority }}</span></td>
           <td><span class="badge badge-{{ status_map.get(ticket.status, 'pending') }}">{{ status_label.get(ticket.status, ticket.status) }}</span></td>
-          <td style="font-size
+          <td style="font-size:0.75rem;color:var(--text-3);white-space:nowrap">{{ ticket.created_at[:16] }}</td>
+          <td>
+            {% if ticket.status == 'pending_review' %}
+              <a href="/review/{{ ticket.id }}" class="btn btn-sm" style="background:#fffbeb;color:#92400e;border:1px solid #fde68a">
+                <i class="bi bi-eye me-1"></i>Review
+              </a>
+            {% else %}
+              <a href="/ticket/{{ ticket.id }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-eye me-1"></i>View
+              </a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div id="noResults" style="display:none" class="empty-state py-4">
+    <i class="bi bi-search"></i>
+    <h5>No tickets match your filters</h5>
+    <p style="font-size:0.875rem">Try adjusting your search or filters</p>
+  </div>
+
+  {% else %}
+  <div class="empty-state">
+    <i class="bi bi-inbox"></i>
+    <h5>No tickets yet</h5>
+    <p style="font-size:0.875rem;margin-bottom:16px">Submit your first ticket to see the AI in action.</p>
+    <a href="/" class="btn btn-primary"><i class="bi bi-plus me-1"></i>Submit a Ticket</a>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function filterTickets() {
+    var search   = document.getElementById('searchInput').value.toLowerCase();
+    var dept     = document.getElementById('deptFilter').value;
+    var priority = document.getElementById('priorityFilter').value;
+    var status   = document.getElementById('statusFilter').value;
+    var rows     = document.querySelectorAll('.ticket-row');
+    var visible  = 0;
+
+    rows.forEach(function(row) {
+      var matchSearch   = !search   || row.dataset.search.includes(search);
+      var matchDept     = !dept     || row.dataset.dept === dept;
+      var matchPriority = !priority || row.dataset.priority === priority;
+      var matchStatus   = !status   || row.dataset.status === status;
+      var show = matchSearch && matchDept && matchPriority && matchStatus;
+      row.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+
+    var countEl = document.getElementById('resultCount');
+    countEl.textContent = visible + ' of ' + rows.length + ' tickets';
+    document.getElementById('noResults').style.display = visible === 0 && rows.length > 0 ? 'block' : 'none';
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    var rows = document.querySelectorAll('.ticket-row');
+    if (rows.length) document.getElementById('resultCount').textContent = rows.length + ' tickets';
+  });
+
+  {% if stats.total > 0 %}
+  var deptData     = {{ stats.by_department | tojson }};
+  var priorityData = {{ stats.by_priority | tojson }};
+
+  var chartDefaults = {
+    plugins: { legend: { display: false } },
+    scales: { x: { grid: { display: false } }, y: { grid: { color: '#f3f4f6' }, ticks: { stepSize: 1 } } }
+  };
+
+  new Chart(document.getElementById('deptChart'), {
+    type: 'bar',
+    data: {
+      labels: Object.keys(deptData),
+      datasets: [{
+        data: Object.values(deptData),
+        backgroundColor: ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6'],
+        borderRadius: 6, borderSkipped: false
+      }]
+    },
+    options: { ...chartDefaults, plugins: { legend: { display: false } } }
+  });
+
+  new Chart(document.getElementById('priorityChart'), {
+    type: 'doughnut',
+    data: {
+      labels: Object.keys(priorityData),
+      datasets: [{
+        data: Object.values(priorityData),
+        backgroundColor: ['#ef4444','#f59e0b','#6366f1','#10b981'],
+        borderWidth: 2, borderColor: '#fff'
+      }]
+    },
+    options: {
+      plugins: {
+        legend: { display: true, position: 'bottom', labels: { font: { size: 12 }, padding: 12 } }
+      },
+      cutout: '65%'
+    }
+  });
+  {% endif %}
+</script>
+{% endblock %}

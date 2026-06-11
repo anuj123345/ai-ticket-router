@@ -26,10 +26,9 @@
   </div>
 </div>
 
-<div class="row g-4 review-grid" style="grid-template-columns: 1fr 1.5fr">
+<div class="row g-4">
   <div class="col-lg-4">
 
-    <!-- Ticket details -->
     <div class="card mb-3">
       <div class="card-header"><i class="bi bi-ticket"></i> Ticket Details</div>
       <div class="card-body" style="font-size:0.8125rem">
@@ -51,7 +50,6 @@
       </div>
     </div>
 
-    <!-- AI Analysis -->
     <div class="card mb-3">
       <div class="card-header"><i class="bi bi-cpu"></i> AI Analysis</div>
       <div class="card-body" style="font-size:0.8125rem">
@@ -74,7 +72,6 @@
       </div>
     </div>
 
-    <!-- Assignee -->
     {% if ticket.assignee_email %}
     <div class="card mb-3">
       <div class="card-header"><i class="bi bi-send"></i> Will Be Sent To</div>
@@ -85,7 +82,6 @@
     </div>
     {% endif %}
 
-    <!-- Sources -->
     {% if sources %}
     <div class="card">
       <div class="card-header"><i class="bi bi-book"></i> Knowledge Base Sources</div>
@@ -99,7 +95,6 @@
 
   </div>
 
-  <!-- Right: Draft + actions -->
   <div class="col-lg-8">
     {% if readonly %}
       <div class="card">
@@ -128,14 +123,13 @@
             <textarea class="draft-editor" name="final_response" id="responseEditor" rows="13">{{ ticket.draft_response }}</textarea>
             <div class="d-flex gap-2 mt-3">
               <button type="button" class="btn btn-success flex-grow-1" onclick="showEmailPreview()">
-                <i class="bi bi-check-lg me-1"></i>Approve & Send Response
+                <i class="bi bi-check-lg me-1"></i>Approve &amp; Send Response
               </button>
             </div>
           </form>
 
           <form action="/reject/{{ ticket.id }}" method="POST" class="mt-2" id="rejectForm">
-            <button type="button" class="btn btn-outline-danger w-100 btn-sm"
-              onclick="confirmEscalate()">
+            <button type="button" class="btn btn-outline-danger w-100 btn-sm" onclick="confirmEscalate()">
               <i class="bi bi-arrow-up-circle me-1"></i>Escalate for Manual Handling
             </button>
           </form>
@@ -145,7 +139,6 @@
   </div>
 </div>
 
-<!-- Email preview modal -->
 {% if not readonly %}
 <div class="email-modal-backdrop" id="emailBackdrop">
   <div class="email-modal">
@@ -164,4 +157,55 @@
       </div>
       <div class="email-body">
         <div id="emailBodyPreview"></div>
-    
+      </div>
+    </div>
+    <div class="email-modal-footer">
+      <button class="btn btn-outline-secondary" onclick="closeEmailPreview()">
+        <i class="bi bi-pencil me-1"></i>Edit
+      </button>
+      <button class="btn btn-success" onclick="submitApproval()">
+        <i class="bi bi-send me-1"></i>Confirm &amp; Send
+      </button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{% if not readonly %}
+<script>
+  function showEmailPreview() {
+    var draft = document.getElementById('responseEditor').value.trim();
+    if (!draft) { showToast('Response cannot be empty.', 'error'); return; }
+    var name = '{{ ticket.submitter }}';
+    var team = '{{ ticket.assignee_team }}';
+    var preview = document.getElementById('emailBodyPreview');
+    preview.style.whiteSpace = 'pre-wrap';
+    preview.textContent = 'Hi ' + name + ',\n\n' + draft + '\n\nBest regards,\n' + team;
+    document.getElementById('emailBackdrop').classList.add('active');
+  }
+
+  function closeEmailPreview() {
+    document.getElementById('emailBackdrop').classList.remove('active');
+  }
+
+  function submitApproval() {
+    closeEmailPreview();
+    showToast('Response approved and sent!', 'success');
+    setTimeout(function() { document.getElementById('approveForm').submit(); }, 600);
+  }
+
+  function confirmEscalate() {
+    if (confirm('Escalate this ticket for manual handling?')) {
+      document.getElementById('rejectForm').submit();
+    }
+  }
+
+  document.getElementById('emailBackdrop').addEventListener('click', function(e) {
+    if (e.target === this) closeEmailPreview();
+  });
+</script>
+{% endif %}
+{% endblock %}

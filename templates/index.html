@@ -90,4 +90,64 @@
       </div>
       <div class="hitl-banner mt-2">
         <i class="bi bi-cpu-fill" style="flex-shrink:0;margin-top:1px"></i>
-        <span>Once submitted, AI will classify, route, and draft a response. A human agent revi
+        <span>Once submitted, AI will classify, route, and draft a response. A human agent reviews before anything is sent.</span>
+      </div>
+    </div>
+    <div class="preview-modal-footer">
+      <button class="btn btn-outline-secondary" onclick="closePreview()">
+        <i class="bi bi-pencil me-1"></i> Edit
+      </button>
+      <form action="/submit" method="POST" id="realSubmitForm">
+        <input type="hidden" name="submitter" id="h_submitter" />
+        <input type="hidden" name="email" id="h_email" />
+        <input type="hidden" name="subject" id="h_subject" />
+        <input type="hidden" name="description" id="h_description" />
+        <button type="submit" class="btn btn-primary" id="confirmBtn" onclick="handleConfirm()">
+          <i class="bi bi-cpu me-1"></i> Submit to AI
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.getElementById('ticketForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const name    = document.getElementById('f_submitter').value.trim();
+    const email   = document.getElementById('f_email').value.trim();
+    const subject = document.getElementById('f_subject').value.trim();
+    const desc    = document.getElementById('f_description').value.trim();
+
+    if (!name || !email || !subject || !desc) {
+      showToast('Please fill in all fields.', 'error'); return;
+    }
+
+    document.getElementById('prev_from').textContent    = name;
+    document.getElementById('prev_email').textContent   = email;
+    document.getElementById('prev_subject').textContent = subject;
+    document.getElementById('prev_desc').textContent    = desc;
+
+    document.getElementById('previewBackdrop').classList.add('active');
+  });
+
+  function closePreview() {
+    document.getElementById('previewBackdrop').classList.remove('active');
+  }
+
+  function handleConfirm() {
+    document.getElementById('h_submitter').value  = document.getElementById('f_submitter').value;
+    document.getElementById('h_email').value      = document.getElementById('f_email').value;
+    document.getElementById('h_subject').value    = document.getElementById('f_subject').value;
+    document.getElementById('h_description').value = document.getElementById('f_description').value;
+    closePreview();
+    startAiLoading();
+  }
+
+  document.getElementById('previewBackdrop').addEventListener('click', function(e) {
+    if (e.target === this) closePreview();
+  });
+</script>
+{% endblock %}
