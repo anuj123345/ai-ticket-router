@@ -33,6 +33,9 @@
         <a class="nav-link {% if request.endpoint == 'ops_dashboard' %}active{% endif %}" href="/ops">
           <i class="bi bi-bar-chart-line"></i> Ops
         </a>
+        <a class="nav-link {% if request.endpoint in ['onboarding', 'onboarding_admin'] %}active{% endif %}" href="/onboarding">
+          <i class="bi bi-mortarboard"></i> Onboarding
+        </a>
       </div>
     </div>
   </div>

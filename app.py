@@ -12,6 +12,10 @@ from models.db import init_db, create_ticket, get_ticket, get_all_tickets, updat
 from services.classifier import classify_ticket, get_assignee
 from services.response_gen import generate_draft, format_full_response
 from services.nl_query import nl_query as run_nl_query
+from services.doc_processor import (
+    process_and_store, get_all_documents, delete_document
+)
+from services.onboarding_agent import answer_question, get_feedback_stats
 
 load_dotenv()
 
@@ -22,7 +26,6 @@ app = Flask(__name__,
 )
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-in-prod")
 
-# Initialize database on startup
 init_db()
 
 
@@ -30,7 +33,6 @@ init_db()
 
 @app.route("/")
 def index():
-    """Ticket submission form."""
     return render_template("index.html")
 
 
@@ -81,14 +83,12 @@ def review_ticket(ticket_id: int):
     if not ticket:
         flash("Ticket not found.", "error")
         return redirect(url_for("dashboard"))
-
     sources = []
     if ticket.get("sources"):
         try:
             sources = json.loads(ticket["sources"])
         except Exception:
             pass
-
     return render_template("review.html", ticket=ticket, sources=sources)
 
 
@@ -109,7 +109,6 @@ def approve_ticket(ticket_id: int):
         submitter_name=ticket["submitter"],
         agent_team=ticket["assignee_team"],
     )
-
     update_ticket_status(ticket_id, status="resolved", final_response=final)
     flash(f"Ticket #{ticket_id} approved and response sent to {ticket['email']}.", "success")
     return redirect(url_for("dashboard"))
@@ -153,19 +152,98 @@ def ticket_detail(ticket_id: int):
 
 @app.route("/ops")
 def ops_dashboard():
-    """AI Ops Dashboard — natural language analytics over ticket data."""
     return render_template("ops_dashboard.html")
 
 
 @app.route("/ops/query", methods=["POST"])
 def ops_query():
-    """Execute a natural language query and return JSON results."""
     data     = request.get_json(silent=True) or {}
     question = data.get("question", "").strip()
     if not question:
         return jsonify({"error": "Question is required."}), 400
     result = run_nl_query(question)
     return jsonify(result)
+
+
+# ─── Onboarding Routes ────────────────────────────────────────────────────────
+
+@app.route("/onboarding")
+def onboarding():
+    return render_template("onboarding.html")
+
+
+@app.route("/onboarding/chat", methods=["POST"])
+def onboarding_chat():
+    data     = request.get_json(silent=True) or {}
+    question = data.get("question", "").strip()
+    if not question:
+        return jsonify({"error": "Question is required."}), 400
+    try:
+        result = answer_question(question)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e), "answer": "Sorry, I encountered an error. Please try again.", "sources": []}), 500
+
+
+@app.route("/onboarding/upload", methods=["POST"])
+def onboarding_upload():
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided."}), 400
+
+    f    = request.files["file"]
+    name = f.filename or "upload"
+    ext  = name.rsplit(".", 1)[-1].lower() if "." in name else "txt"
+
+    if ext not in ("pdf", "docx", "txt", "md"):
+        return jsonify({"error": "Unsupported file type. Use PDF, DOCX, TXT, or MD."}), 400
+
+    file_bytes = f.read()
+    if len(file_bytes) > 3 * 1024 * 1024:
+        return jsonify({"error": "File too large. Maximum size is 3 MB."}), 400
+    if len(file_bytes) == 0:
+        return jsonify({"error": "File is empty."}), 400
+
+    try:
+        result = process_and_store(name, file_bytes, ext)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/onboarding/delete/<int:doc_id>", methods=["POST"])
+def onboarding_delete(doc_id: int):
+    try:
+        delete_document(doc_id)
+        flash("Document deleted successfully.", "success")
+    except Exception as e:
+        flash(f"Error deleting document: {str(e)}", "error")
+    return redirect(url_for("onboarding_admin"))
+
+
+@app.route("/onboarding/feedback", methods=["POST"])
+def onboarding_feedback():
+    data    = request.get_json(silent=True) or {}
+    conv_id = data.get("conversation_id")
+    if not conv_id:
+        return jsonify({"error": "conversation_id required"}), 400
+
+    from models.db import get_client
+    payload = {"conversation_id": conv_id}
+    if "rating" in data:
+        payload["rating"]    = data["rating"]
+    if data.get("is_flagged"):
+        payload["is_flagged"]    = True
+        payload["flag_comment"]  = data.get("flag_comment", "")
+
+    get_client().table("feedback").insert(payload).execute()
+    return jsonify({"ok": True})
+
+
+@app.route("/onboarding/admin")
+def onboarding_admin():
+    documents = get_all_documents()
+    stats     = get_feedback_stats()
+    return render_template("onboarding_admin.html", documents=documents, stats=stats)
 
 
 # ─── Run ─────────────────────────────────────────────────────────────────────

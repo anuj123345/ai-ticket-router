@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+{% block title %}Onboarding Assistant — AI Ticket Router{% endblock %}
+
+{% block content %}
+<div class="ob-wrap">
+
+  <div class="ob-header">
+    <div>
+      <h1 class="ob-title"><i class="bi bi-mortarboard-fill me-2"></i>Onboarding Assistant</h1>
+      <p class="ob-subtitle">Ask questions about company policies, processes, and procedures</p>
+    </div>
+    <a href="/onboarding/admin" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-gear me-1"></i> Manage Docs
+    </a>
+  </div>
+
+  <div class="ob-layout">
+
+    <!-- ── Chat panel ──────────────────────────────────────────────── -->
+    <div class="ob-chat-panel">
+
+      <!-- Messages area -->
+      <div class="ob-messages" id="messagesArea">
+        <!-- Welcome message -->
+        <div class="ob-msg ob-msg-assistant">
+          <div class="ob-msg-avatar"><i class="bi bi-robot"></i></div>
+          <div class="ob-msg-body">
+            <div class="ob-msg-bubble">
+              Hi! I'm your onboarding assistant. Ask me anything about company policies, benefits, processes, or procedures — I'll answer based on your uploaded documentation and always show my sources.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Typing indicator -->
+      <div class="ob-typing" id="typingIndicator" style="display:none">
+        <div class="ob-msg-avatar"><i class="bi bi-robot"></i></div>
+        <div class="ob-typing-dots">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+
+      <!-- Input bar -->
+      <div class="ob-input-bar">
+        <div class="ob-input-wrap">
+          <textarea
+            id="questionInput"
+            class="ob-input"
+            placeholder="e.g. How many days of PTO do I get in my first year?"
+            rows="1"
+          ></textarea>
+          <button id="sendBtn" class="ob-send-btn" onclick="sendQuestion()">
+            <i class="bi bi-send-fill"></i>
+          </button>
+        </div>
+        <div class="ob-input-hint">Answers are grounded in your uploaded company docs &middot; Sources shown below each answer</div>
+      </div>
+    </div>
+
+    <!-- ── Sidebar: starter questions ──────────────────────────────── -->
+    <aside class="ob-sidebar">
+      <div class="ob-sidebar-title">Common questions</div>
+      <div class="ob-starters">
+        <button class="ob-starter" onclick="ask(this.dataset.q)"
+          data-q="What is the vacation and PTO policy?">
+          <i class="bi bi-calendar-check"></i> Vacation &amp; PTO policy
+        </button>
+        <button class="ob-starter" onclick="ask(this.dataset.q)"
+          data-q="How do I request time off or sick leave?">
+          <i class="bi bi-calendar-x"></i> Request time off
+        </button>
+        <button class="ob-starter" onclick="ask(this.dataset.q)"
+          data-q="What are the remote work and work from home policies?">
+          <i class="bi bi-house-door"></i> Remote work policy
+        </button>
+        <button class="ob-starter" onclick="ask(this.dataset.q)"
+          data-q="What health insurance and benefits are available?">
+          <i class="bi bi-heart-pulse"></i> Health benefits
+        </button>
+        <button class="ob-starter" onclick="ask(this.dataset.q)"
+          data-q="What is the performance review and promotion process?">
+          <i class="bi bi-graph-up-arrow"></i> Performance reviews
+        </button>
+        <button class="ob-starter" onclick="ask(this.dataset.q)"
+          data-q="What is the code of conduct and company values?">
+          <i class="bi bi-shield-check"></i> Code of conduct
+        </button>
+        <button class="ob-starter" onclick="ask(this.dataset.q)"
+          data-q="How do I set up my laptop and get access to tools?">
+          <i class="bi bi-laptop"></i> IT setup &amp; access
+        </button>
+        <button class="ob-starter" onclick="ask(this.dataset.q)"
+          data-q="What is the expense reimbursement process?">
+          <i class="bi bi-receipt"></i> Expense reimbursement
+        </button>
+      </div>
+
+      <div class="ob-sidebar-title mt-4">Tips</div>
+      <div class="ob-tips">
+        <div class="ob-tip"><i class="bi bi-lightbulb"></i> Be specific for better answers</div>
+        <div class="ob-tip"><i class="bi bi-bookmark"></i> Thumbs down flags answers for review</div>
+        <div class="ob-tip"><i class="bi bi-exclamation-triangle"></i> Flag outdated info for your HR team</div>
+      </div>
+    </aside>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const messagesArea = document.getElementById('messagesArea');
+const questionInput = document.getElementById('questionInput');
+
+// Auto-resize textarea
+questionInput.addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+});
+
+questionInput.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
+});
+
+function ask(q) {
+  questionInput.value = q;
+  sendQuestion();
+}
+
+function sendQuestion() {
+  const q = questionInput.value.trim();
+  if (!q) return;
+
+  appendUserMessage(q);
+  questionInput.value = '';
+  questionInput.style.height = 'auto';
+  document.getElementById('sendBtn').disabled = true;
+  document.getElementById('typingIndicator').style.display = 'flex';
+  scrollToBottom();
+
+  fetch('/onboarding/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question: q }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    document.getElementById('typingIndicator').style.display = 'none';
+    appendAssistantMessage(data);
+    scrollToBottom();
+  })
+  .catch(err => {
+    document.getElementById('typingIndicator').style.display = 'none';
+    appendAssistantMessage({ answer: 'Sorry, something went wrong. Please try again.', sources: [], possibly_outdated: false });
+  })
+  .finally(() => {
+    document.getElementById('sendBtn').disabled = false;
+  });
+}
+
+function appendUserMessage(text) {
+  const div = document.createElement('div');
+  div.className = 'ob-msg ob-msg-user';
+  div.innerHTML = `
+    <div class="ob-msg-body">
+      <div class="ob-msg-bubble">${escHtml(text)}</div>
+    </div>
+    <div class="ob-msg-avatar ob-msg-avatar-user"><i class="bi bi-person-fill"></i></div>
+  `;
+  messagesArea.appendChild(div);
+}
+
+function appendAssistantMessage(data) {
+  const convId = data.conversation_id;
+  const hasDocs = data.has_docs !== false;
+
+  // Outdated warning
+  const outdatedHtml = data.possibly_outdated ? `
+    <div class="ob-outdated-banner">
+      <i class="bi bi-exclamation-triangle-fill"></i>
+      <span>This information may be outdated${data.outdated_reason ? ': ' + escHtml(data.outdated_reason) : ''}.</span>
+    </div>` : '';
+
+  // No-docs warning
+  const noDocsHtml = !hasDocs ? `
+    <div class="ob-no-docs-banner">
+      <i class="bi bi-info-circle"></i>
+      <span>No documents have been uploaded yet. <a href="/onboarding/admin">Upload docs</a> to get grounded answers.</span>
+    </div>` : '';
+
+  // Sources
+  const sourcesHtml = data.sources && data.sources.length > 0 ? `
+    <details class="ob-sources">
+      <summary><i class="bi bi-files me-1"></i>${data.sources.length} source${data.sources.length > 1 ? 's' : ''} used</summary>
+      <div class="ob-sources-list">
+        ${data.sources.map(s => `
+          <div class="ob-source-item">
+            <div class="ob-source-name"><i class="bi bi-file-text me-1"></i>${escHtml(s.document_name)}</div>
+            <div class="ob-source-excerpt">${escHtml(s.excerpt || '')}</div>
+          </div>
+        `).join('')}
+      </div>
+    </details>` : '';
+
+  // Feedback buttons
+  const feedbackHtml = convId ? `
+    <div class="ob-feedback" id="fb-${convId}">
+      <span class="ob-feedback-label">Was this helpful?</span>
+      <button class="ob-fb-btn" onclick="submitFeedback(${convId}, 1, this)" title="Yes, helpful">
+        <i class="bi bi-hand-thumbs-up"></i>
+      </button>
+      <button class="ob-fb-btn" onclick="submitFeedback(${convId}, -1, this)" title="Not helpful">
+        <i class="bi bi-hand-thumbs-down"></i>
+      </button>
+      <button class="ob-fb-btn ob-fb-flag" onclick="flagOutdated(${convId}, this)" title="Flag as outdated">
+        <i class="bi bi-flag"></i> Flag outdated
+      </button>
+    </div>` : '';
+
+  const div = document.createElement('div');
+  div.className = 'ob-msg ob-msg-assistant';
+  div.innerHTML = `
+    <div class="ob-msg-avatar"><i class="bi bi-robot"></i></div>
+    <div class="ob-msg-body">
+      ${noDocsHtml}
+      ${outdatedHtml}
+      <div class="ob-msg-bubble">${formatAnswer(data.answer)}</div>
+      ${sourcesHtml}
+      ${feedbackHtml}
+    </div>
+  `;
+  messagesArea.appendChild(div);
+}
+
+function formatAnswer(text) {
+  if (!text) return '';
+  // Convert markdown-ish formatting
+  let html = escHtml(text);
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  // Bullet points
+  html = html.replace(/^[•\-] (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+  // Line breaks
+  html = html.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
+  return '<p>' + html + '</p>';
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function scrollToBottom() {
+  setTimeout(() => messagesArea.scrollTop = messagesArea.scrollHeight, 50);
+}
+
+async function submitFeedback(convId, rating, btn) {
+  const fbDiv = document.getElementById('fb-' + convId);
+  await fetch('/onboarding/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversation_id: convId, rating }),
+  });
+  fbDiv.innerHTML = rating === 1
+    ? '<span class="ob-feedback-done"><i class="bi bi-check-circle-fill text-success"></i> Thanks for the feedback!</span>'
+    : '<span class="ob-feedback-done"><i class="bi bi-check-circle-fill text-warning"></i> Noted — we\'ll review this answer.</span>';
+}
+
+async function flagOutdated(convId, btn) {
+  const comment = prompt('Optional: describe what seems outdated (or press OK to skip)');
+  await fetch('/onboarding/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversation_id: convId, is_flagged: true, flag_comment: comment || '' }),
+  });
+  const fbDiv = document.getElementById('fb-' + convId);
+  fbDiv.innerHTML = '<span class="ob-feedback-done"><i class="bi bi-flag-fill text-danger"></i> Flagged for review. Thank you!</span>';
+}
+</script>
+{% endblock %}

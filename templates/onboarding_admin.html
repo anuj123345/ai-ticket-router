@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}Doc Management — Onboarding Assistant{% endblock %}
+
+{% block content %}
+<div class="ob-wrap">
+
+  <div class="ob-header">
+    <div>
+      <h1 class="ob-title"><i class="bi bi-folder2-open me-2"></i>Knowledge Base</h1>
+      <p class="ob-subtitle">Upload and manage company documents for the onboarding assistant</p>
+    </div>
+    <a href="/onboarding" class="btn btn-primary btn-sm">
+      <i class="bi bi-chat-dots me-1"></i> Open Assistant
+    </a>
+  </div>
+
+  <div class="ob-admin-grid">
+
+    <!-- ── Upload panel ─────────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-body">
+        <h6 class="card-title-sm mb-3"><i class="bi bi-cloud-upload me-2 text-primary"></i>Upload Document</h6>
+
+        <div class="ob-drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+          <div class="ob-drop-icon"><i class="bi bi-file-earmark-arrow-up"></i></div>
+          <div class="ob-drop-text">Click or drag &amp; drop a file here</div>
+          <div class="ob-drop-hint">PDF, Word (.docx), or plain text (.txt, .md) · Max 3 MB</div>
+          <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.md" style="display:none" onchange="handleFileSelect(this)" />
+        </div>
+
+        <div id="uploadStatus" style="display:none" class="mt-3"></div>
+
+        <div id="filePreview" style="display:none" class="ob-file-preview mt-3">
+          <div class="ob-file-info">
+            <i class="bi bi-file-earmark-text ob-file-icon"></i>
+            <div>
+              <div id="previewName" class="ob-file-name"></div>
+              <div id="previewSize" class="ob-file-size"></div>
+            </div>
+          </div>
+          <button id="uploadBtn" class="btn btn-primary btn-sm" onclick="uploadFile()">
+            <i class="bi bi-cloud-upload me-1"></i> Upload
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Feedback stats ──────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-body">
+        <h6 class="card-title-sm mb-3"><i class="bi bi-bar-chart me-2 text-primary"></i>Feedback Summary</h6>
+        <div class="ob-stats-grid">
+          <div class="ob-stat-box">
+            <div class="ob-stat-num text-success">{{ stats.positive }}</div>
+            <div class="ob-stat-label">Helpful</div>
+          </div>
+          <div class="ob-stat-box">
+            <div class="ob-stat-num text-warning">{{ stats.negative }}</div>
+            <div class="ob-stat-label">Not helpful</div>
+          </div>
+          <div class="ob-stat-box">
+            <div class="ob-stat-num text-danger">{{ stats.flagged }}</div>
+            <div class="ob-stat-label">Flagged</div>
+          </div>
+          <div class="ob-stat-box">
+            <div class="ob-stat-num">{{ stats.total }}</div>
+            <div class="ob-stat-label">Total</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Documents table ──────────────────────────────────────────── -->
+  <div class="card mt-3">
+    <div class="card-body p-0">
+      <div class="p-3 border-bottom d-flex align-items-center justify-content-between">
+        <h6 class="card-title-sm mb-0"><i class="bi bi-files me-2 text-primary"></i>Uploaded Documents <span class="badge bg-light text-secondary ms-1">{{ documents | length }}</span></h6>
+      </div>
+
+      {% if documents %}
+      <div class="table-responsive">
+        <table class="table ob-doc-table mb-0">
+          <thead>
+            <tr>
+              <th>Document</th>
+              <th>Type</th>
+              <th>Size</th>
+              <th>Chunks</th>
+              <th>Uploaded</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for doc in documents %}
+            <tr>
+              <td>
+                <div class="ob-doc-name">
+                  <i class="bi bi-file-earmark-{% if doc.file_type == 'pdf' %}pdf{% elif doc.file_type == 'docx' %}word{% else %}text{% endif %} ob-doc-icon-{% if doc.file_type == 'pdf' %}pdf{% elif doc.file_type == 'docx' %}word{% else %}txt{% endif %}"></i>
+                  {{ doc.name }}
+                </div>
+              </td>
+              <td><span class="badge-dept">{{ doc.file_type | upper }}</span></td>
+              <td>{{ (doc.size_bytes / 1024) | round(1) }} KB</td>
+              <td>{{ doc.chunk_count }} chunks</td>
+              <td class="text-secondary" style="font-size:0.8125rem">{{ doc.created_at[:10] }}</td>
+              <td>
+                <form method="POST" action="/onboarding/delete/{{ doc.id }}" onsubmit="return confirm('Delete this document and all its chunks?')">
+                  <button type="submit" class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="ob-no-docs p-5 text-center">
+        <div style="font-size:2.5rem;color:var(--border);margin-bottom:1rem"><i class="bi bi-folder2"></i></div>
+        <div style="font-weight:600;color:var(--text-1);margin-bottom:0.25rem">No documents uploaded yet</div>
+        <div style="color:var(--text-3);font-size:0.875rem">Upload your employee handbook, SOPs, or policy docs above to get started.</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedFile = null;
+
+// Drag & drop
+const dropZone = document.getElementById('dropZone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) showPreview(file);
+});
+
+function handleFileSelect(input) {
+  if (input.files[0]) showPreview(input.files[0]);
+}
+
+function showPreview(file) {
+  const allowed = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                   'text/plain', 'text/markdown', ''];
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['pdf','docx','txt','md'].includes(ext)) {
+    showStatus('Unsupported file type. Please upload PDF, DOCX, TXT, or MD.', 'error');
+    return;
+  }
+  if (file.size > 3 * 1024 * 1024) {
+    showStatus('File too large. Max size is 3 MB.', 'error');
+    return;
+  }
+  selectedFile = file;
+  document.getElementById('previewName').textContent = file.name;
+  document.getElementById('previewSize').textContent = (file.size / 1024).toFixed(1) + ' KB · ' + ext.toUpperCase();
+  document.getElementById('filePreview').style.display = 'flex';
+  document.getElementById('uploadStatus').style.display = 'none';
+}
+
+async function uploadFile() {
+  if (!selectedFile) return;
+  const btn = document.getElementById('uploadBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Processing…';
+
+  const formData = new FormData();
+  formData.append('file', selectedFile);
+
+  try {
+    const res  = await fetch('/onboarding/upload', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (data.error) {
+      showStatus(data.error, 'error');
+    } else {
+      showStatus(`✓ "${data.name}" uploaded successfully — ${data.chunks} chunks indexed.`, 'success');
+      document.getElementById('filePreview').style.display = 'none';
+      selectedFile = null;
+      setTimeout(() => location.reload(), 1500);
+    }
+  } catch (e) {
+    showStatus('Upload failed. Please try again.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-cloud-upload me-1"></i> Upload';
+  }
+}
+
+function showStatus(msg, type) {
+  const el = document.getElementById('uploadStatus');
+  el.style.display = 'block';
+  el.className = 'mt-3 ' + (type === 'success' ? 'ob-upload-success' : 'ob-upload-error');
+  el.textContent = msg;
+}
+</script>
+{% endblock %}
