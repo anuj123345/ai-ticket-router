@@ -14,7 +14,11 @@ from services.response_gen import generate_draft, format_full_response
 
 load_dotenv()
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+app = Flask(__name__,
+    static_folder=os.path.join(BASE_DIR, "static"),
+    template_folder=os.path.join(BASE_DIR, "templates")
+)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-in-prod")
 
 # Initialize database on startup
