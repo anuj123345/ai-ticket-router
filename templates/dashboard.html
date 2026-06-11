@@ -183,7 +183,7 @@
 
   var chartDefaults = {
     plugins: { legend: { display: false } },
-    scales: { x: { grid: { display: false } }, y: { grid: { color: '#f3f4f6' }, ticks: { stepSize: 1 } } }
+    scales: { x: { grid: { display: false }, border: { display: false } }, y: { grid: { color: "#f3f4f6" }, border: { display: false }, ticks: { stepSize: 1, precision: 0 } } }, maintainAspectRatio: true
   };
 
   new Chart(document.getElementById('deptChart'), {
@@ -193,7 +193,7 @@
       datasets: [{
         data: Object.values(deptData),
         backgroundColor: ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6'],
-        borderRadius: 6, borderSkipped: false
+        borderRadius: 6, borderSkipped: false, maxBarThickness: 56
       }]
     },
     options: { ...chartDefaults, plugins: { legend: { display: false } } }

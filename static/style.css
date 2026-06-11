@@ -770,3 +770,6 @@ footer {
   .tickets-table thead th:nth-child(6),
   .tickets-table tbody td:nth-child(6) { display: none; }
 }
+
+/* Chart canvas constraint */
+.chart-card canvas { max-height: 220px; }
