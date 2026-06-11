@@ -110,6 +110,7 @@
 <script>
 const messagesArea = document.getElementById('messagesArea');
 const questionInput = document.getElementById('questionInput');
+const conversationHistory = [];   // {question, answer} — last 5 kept
 
 // Auto-resize textarea
 questionInput.addEventListener('input', function() {
@@ -140,17 +141,17 @@ function sendQuestion() {
   fetch('/onboarding/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question: q }),
+    body: JSON.stringify({ question: q, history: conversationHistory.slice(-5) }),
   })
   .then(r => r.json())
   .then(data => {
     document.getElementById('typingIndicator').style.display = 'none';
-    appendAssistantMessage(data);
+    appendAssistantMessage(data, q);
     scrollToBottom();
   })
   .catch(err => {
     document.getElementById('typingIndicator').style.display = 'none';
-    appendAssistantMessage({ answer: 'Sorry, something went wrong. Please try again.', sources: [], possibly_outdated: false });
+    appendAssistantMessage({ answer: 'Sorry, something went wrong. Please try again.', sources: [], possibly_outdated: false }, q);
   })
   .finally(() => {
     document.getElementById('sendBtn').disabled = false;
@@ -169,7 +170,12 @@ function appendUserMessage(text) {
   messagesArea.appendChild(div);
 }
 
-function appendAssistantMessage(data) {
+function appendAssistantMessage(data, question) {
+  // Save to conversation memory
+  if (data.answer && question) {
+    conversationHistory.push({ question, answer: data.answer });
+    if (conversationHistory.length > 10) conversationHistory.shift();
+  }
   const convId = data.conversation_id;
   const hasDocs = data.has_docs !== false;
 

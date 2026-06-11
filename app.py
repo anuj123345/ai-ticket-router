@@ -1,21 +1,20 @@
 """
 AI Ticket Router — Flask Application
-Entry point. Run with: python app.py
 """
 
 import json
 import os
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from functools import wraps
+from flask import (Flask, render_template, request, redirect,
+                   url_for, flash, jsonify, session)
 from dotenv import load_dotenv
 
 from models.db import init_db, create_ticket, get_ticket, get_all_tickets, update_ticket_status, get_stats
 from services.classifier import classify_ticket, get_assignee
 from services.response_gen import generate_draft, format_full_response
 from services.nl_query import nl_query as run_nl_query
-from services.doc_processor import (
-    process_and_store, get_all_documents, delete_document
-)
-from services.onboarding_agent import answer_question, get_feedback_stats
+from services.doc_processor import process_and_store, get_all_documents, delete_document
+from services.onboarding_agent import answer_question, save_verified_qa, get_feedback_stats
 
 load_dotenv()
 
@@ -26,7 +25,38 @@ app = Flask(__name__,
 )
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-in-prod")
 
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+
 init_db()
+
+
+# ── Admin auth decorator ──────────────────────────────────────────────────────
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("admin_authenticated"):
+            return redirect(url_for("admin_login", next=request.path))
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        if password == ADMIN_PASSWORD:
+            session["admin_authenticated"] = True
+            next_url = request.args.get("next", url_for("onboarding_admin"))
+            return redirect(next_url)
+        flash("Incorrect password.", "error")
+    return render_template("admin_login.html")
+
+
+@app.route("/admin/logout")
+def admin_logout():
+    session.pop("admin_authenticated", None)
+    return redirect(url_for("onboarding"))
 
 
 # ─── Ticket Routes ────────────────────────────────────────────────────────────
@@ -69,7 +99,6 @@ def submit_ticket():
             "sources":        json.dumps([s["source"] for s in result["sources"]]),
             "status":         "pending_review",
         })
-
         return redirect(url_for("review_ticket", ticket_id=ticket_id))
 
     except Exception as e:
@@ -148,7 +177,7 @@ def ticket_detail(ticket_id: int):
     return render_template("review.html", ticket=ticket, sources=sources, readonly=True)
 
 
-# ─── Ops Dashboard Routes ─────────────────────────────────────────────────────
+# ─── Ops Dashboard ────────────────────────────────────────────────────────────
 
 @app.route("/ops")
 def ops_dashboard():
@@ -161,11 +190,10 @@ def ops_query():
     question = data.get("question", "").strip()
     if not question:
         return jsonify({"error": "Question is required."}), 400
-    result = run_nl_query(question)
-    return jsonify(result)
+    return jsonify(run_nl_query(question))
 
 
-# ─── Onboarding Routes ────────────────────────────────────────────────────────
+# ─── Onboarding ───────────────────────────────────────────────────────────────
 
 @app.route("/onboarding")
 def onboarding():
@@ -176,16 +204,56 @@ def onboarding():
 def onboarding_chat():
     data     = request.get_json(silent=True) or {}
     question = data.get("question", "").strip()
+    history  = data.get("history", [])          # list of {question, answer}
     if not question:
         return jsonify({"error": "Question is required."}), 400
     try:
-        result = answer_question(question)
+        result = answer_question(question, history=history)
         return jsonify(result)
     except Exception as e:
-        return jsonify({"error": str(e), "answer": "Sorry, I encountered an error. Please try again.", "sources": []}), 500
+        return jsonify({
+            "error":    str(e),
+            "answer":   "Sorry, I encountered an error. Please try again.",
+            "sources":  [],
+            "has_docs": False,
+        }), 500
+
+
+@app.route("/onboarding/feedback", methods=["POST"])
+def onboarding_feedback():
+    data    = request.get_json(silent=True) or {}
+    conv_id = data.get("conversation_id")
+    if not conv_id:
+        return jsonify({"error": "conversation_id required"}), 400
+
+    db      = get_client_direct()
+    payload = {"conversation_id": conv_id}
+
+    rating = data.get("rating")
+    if rating is not None:
+        payload["rating"] = rating
+        if rating == 1:
+            # Thumbs up → save to verified Q&A knowledge base
+            try:
+                save_verified_qa(conv_id)
+            except Exception:
+                pass
+
+    if data.get("is_flagged"):
+        payload["is_flagged"]   = True
+        payload["flag_comment"] = data.get("flag_comment", "")
+
+    db.table("feedback").insert(payload).execute()
+    return jsonify({"ok": True})
+
+
+def get_client_direct():
+    from models.db import get_client
+    return get_client()
 
 
 @app.route("/onboarding/upload", methods=["POST"])
+@admin_required
 def onboarding_upload():
     if "file" not in request.files:
         return jsonify({"error": "No file provided."}), 400
@@ -211,6 +279,7 @@ def onboarding_upload():
 
 
 @app.route("/onboarding/delete/<int:doc_id>", methods=["POST"])
+@admin_required
 def onboarding_delete(doc_id: int):
     try:
         delete_document(doc_id)
@@ -220,26 +289,8 @@ def onboarding_delete(doc_id: int):
     return redirect(url_for("onboarding_admin"))
 
 
-@app.route("/onboarding/feedback", methods=["POST"])
-def onboarding_feedback():
-    data    = request.get_json(silent=True) or {}
-    conv_id = data.get("conversation_id")
-    if not conv_id:
-        return jsonify({"error": "conversation_id required"}), 400
-
-    from models.db import get_client
-    payload = {"conversation_id": conv_id}
-    if "rating" in data:
-        payload["rating"]    = data["rating"]
-    if data.get("is_flagged"):
-        payload["is_flagged"]    = True
-        payload["flag_comment"]  = data.get("flag_comment", "")
-
-    get_client().table("feedback").insert(payload).execute()
-    return jsonify({"ok": True})
-
-
 @app.route("/onboarding/admin")
+@admin_required
 def onboarding_admin():
     documents = get_all_documents()
     stats     = get_feedback_stats()
@@ -250,5 +301,4 @@ def onboarding_admin():
 
 if __name__ == "__main__":
     print("Starting AI Ticket Router...")
-    print("Open http://localhost:5000 in your browser.")
     app.run(debug=True, port=5000)

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Admin Login — AI Ticket Router{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-4">
+    <div class="hero-wrap">
+      <div class="hero-icon"><i class="bi bi-shield-lock-fill"></i></div>
+      <h1>Admin Access</h1>
+      <p>Enter your admin password to manage the knowledge base.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <form method="POST">
+          <div class="mb-4">
+            <label class="form-label">Admin Password</label>
+            <input type="password" name="password" class="form-control" placeholder="Enter password" autofocus required />
+          </div>
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-unlock me-1"></i> Sign In
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
