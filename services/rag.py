@@ -1,64 +1,33 @@
 """
-RAG Service — indexes knowledge base docs using NVIDIA NIM embeddings API
-and retrieves relevant context via cosine similarity (pure Python/numpy).
-No sentence-transformers or ChromaDB required — works on Vercel.
+RAG Service — indexes knowledge base docs and retrieves relevant context
+using TF-IDF keyword matching (pure Python, no external API needed).
+The LLM still uses NVIDIA NIM for classification and response generation.
 """
 
 import os
+import re
 import glob
-import json
 import math
-from openai import OpenAI
+from collections import Counter
 
 KB_DIR = os.path.join(os.path.dirname(__file__), "..", "knowledge_base")
 
-# In-memory vector store: list of {"text", "source", "category", "embedding"}
+# In-memory index: list of {"text", "source", "category", "tf"}
 _index: list[dict] = []
 _indexed = False
 
 
-def _get_embed_client() -> OpenAI:
-    return OpenAI(
-        api_key=os.getenv("NVIDIA_API_KEY"),
-        base_url=os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
-    )
+def _tokenize(text: str) -> list[str]:
+    return re.findall(r'\b[a-z][a-z0-9]{2,}\b', text.lower())
 
 
-def _embed(texts: list[str]) -> list[list[float]]:
-    """Get embeddings from NVIDIA NIM for a list of texts."""
-    client = _get_embed_client()
-    response = client.embeddings.create(
-        model="nvidia/nv-embedqa-mistral-7b-v2",
-        input=texts,
-        encoding_format="float",
-        extra_body={"input_type": "passage", "truncate": "END"},
-    )
-    return [item.embedding for item in response.data]
-
-
-def _embed_query(text: str) -> list[float]:
-    """Get embedding for a query string."""
-    client = _get_embed_client()
-    response = client.embeddings.create(
-        model="nvidia/nv-embedqa-mistral-7b-v2",
-        input=[text],
-        encoding_format="float",
-        extra_body={"input_type": "query", "truncate": "END"},
-    )
-    return response.data[0].embedding
-
-
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    mag_a = math.sqrt(sum(x * x for x in a))
-    mag_b = math.sqrt(sum(x * x for x in b))
-    if mag_a == 0 or mag_b == 0:
-        return 0.0
-    return dot / (mag_a * mag_b)
+def _tf(tokens: list[str]) -> dict:
+    count = Counter(tokens)
+    total = max(len(tokens), 1)
+    return {w: c / total for w, c in count.items()}
 
 
 def _chunk_text(text: str, chunk_size: int = 400, overlap: int = 80) -> list[str]:
-    """Split text into overlapping chunks for better retrieval."""
     words = text.split()
     chunks = []
     start = 0
@@ -70,7 +39,6 @@ def _chunk_text(text: str, chunk_size: int = 400, overlap: int = 80) -> list[str
 
 
 def _build_index():
-    """Load all markdown files, embed them, and store in memory."""
     global _index, _indexed
     if _indexed:
         return
@@ -81,70 +49,64 @@ def _build_index():
         _indexed = True
         return
 
-    all_chunks = []
-    all_meta = []
-
     for filepath in md_files:
         filename = os.path.basename(filepath)
         category = filename.replace(".md", "").replace("_", " ").title()
         with open(filepath, "r", encoding="utf-8") as f:
             content = f.read()
-        chunks = _chunk_text(content)
-        for chunk in chunks:
-            all_chunks.append(chunk)
-            all_meta.append({"source": filename, "category": category})
 
-    # Embed in batches of 10 to stay within API limits
-    batch_size = 10
-    embeddings = []
-    for i in range(0, len(all_chunks), batch_size):
-        batch = all_chunks[i:i + batch_size]
-        batch_embeddings = _embed(batch)
-        embeddings.extend(batch_embeddings)
+        for chunk in _chunk_text(content):
+            tokens = _tokenize(chunk)
+            _index.append({
+                "text":     chunk,
+                "source":   filename,
+                "category": category,
+                "tf":       _tf(tokens),
+                "tokens":   set(tokens),
+            })
 
-    for chunk, meta, emb in zip(all_chunks, all_meta, embeddings):
-        _index.append({
-            "text": chunk,
-            "source": meta["source"],
-            "category": meta["category"],
-            "embedding": emb,
-        })
+    # Compute IDF across all chunks
+    N = len(_index)
+    all_words = set(w for item in _index for w in item["tokens"])
+    idf = {}
+    for word in all_words:
+        df = sum(1 for item in _index if word in item["tokens"])
+        idf[word] = math.log((N + 1) / (df + 1)) + 1
 
-    print(f"RAG: Indexed {len(_index)} chunks from {len(md_files)} files.")
+    # Store tfidf score vector in each chunk
+    for item in _index:
+        item["tfidf"] = {w: item["tf"].get(w, 0) * idf.get(w, 1) for w in item["tokens"]}
+
     _indexed = True
+    print(f"RAG: Indexed {len(_index)} chunks from {len(md_files)} files.")
+
+
+def _score(query: str, item: dict) -> float:
+    q_tokens = _tokenize(query)
+    if not q_tokens:
+        return 0.0
+    return sum(item["tfidf"].get(t, 0) for t in q_tokens)
 
 
 def retrieve(query: str, n_results: int = 4) -> list[dict]:
-    """
-    Retrieve the most relevant knowledge base chunks for a query.
-    Returns list of dicts: {"text", "source", "category"}
-    """
+    """Return the most relevant knowledge base chunks for a query."""
     _build_index()
-
     if not _index:
         return []
 
-    query_emb = _embed_query(query)
-
-    scored = []
-    for item in _index:
-        score = _cosine_similarity(query_emb, item["embedding"])
-        scored.append((score, item))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-    top = scored[:n_results]
-
-    return [
-        {"text": item["text"], "source": item["source"], "category": item["category"]}
-        for _, item in top
-    ]
+    scored = sorted(_index, key=lambda x: _score(query, x), reverse=True)
+    seen, results = set(), []
+    for item in scored:
+        key = item["source"] + item["text"][:60]
+        if key not in seen:
+            seen.add(key)
+            results.append({"text": item["text"], "source": item["source"], "category": item["category"]})
+        if len(results) >= n_results:
+            break
+    return results
 
 
 def format_context(chunks: list[dict]) -> str:
-    """Format retrieved chunks into a single context string for the LLM prompt."""
     if not chunks:
         return "No relevant documentation found."
-    parts = []
-    for chunk in chunks:
-        parts.append(f"[Source: {chunk['category']}]\n{chunk['text']}")
-    return "\n\n---\n\n".join(parts)
+    return "\n\n---\n\n".join(f"[Source: {c['category']}]\n{c['text']}" for c in chunks)
