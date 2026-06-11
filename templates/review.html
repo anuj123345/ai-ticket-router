@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Review Ticket #{{ ticket.id }} — AI Ticket Router{% endblock %}
+
+{% block content %}
+
+{% set priority_colors = {'Critical': 'danger', 'High': 'warning', 'Medium': 'primary', 'Low': 'secondary'} %}
+{% set dept_icons = {'IT': 'pc-display', 'HR': 'people', 'Finance': 'currency-dollar', 'Engineering': 'code-slash', 'General': 'question-circle'} %}
+
+<div class="row justify-content-center">
+  <div class="col-lg-9">
+
+    <!-- Header -->
+    <div class="d-flex align-items-center justify-content-between mb-4">
+      <div>
+        <a href="/dashboard" class="text-muted small text-decoration-none">
+          <i class="bi bi-arrow-left me-1"></i>Back to Dashboard
+        </a>
+        <h1 class="h4 fw-bold mt-1 mb-0">
+          {% if readonly %}
+            Ticket #{{ ticket.id }}
+          {% else %}
+            <i class="bi bi-shield-check me-2 text-warning"></i>Human Review Required
+          {% endif %}
+        </h1>
+      </div>
+      <div class="d-flex gap-2 align-items-center">
+        <span class="badge bg-{{ priority_colors.get(ticket.priority, 'secondary') }} fs-6 px-3 py-2">
+          {{ ticket.priority }}
+        </span>
+        <span class="badge bg-light text-dark border fs-6 px-3 py-2">
+          <i class="bi bi-{{ dept_icons.get(ticket.department, 'question-circle') }} me-1"></i>
+          {{ ticket.department }}
+        </span>
+      </div>
+    </div>
+
+    <div class="row g-4">
+
+      <!-- Left: Ticket info + AI analysis -->
+      <div class="col-lg-5">
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold small text-muted text-uppercase">
+            <i class="bi bi-ticket me-1"></i>Ticket Details
+          </div>
+          <div class="card-body">
+            <div class="mb-2">
+              <div class="small text-muted">From</div>
+              <div class="fw-semibold">{{ ticket.submitter }}</div>
+              <div class="small text-muted">{{ ticket.email }}</div>
+            </div>
+            <hr class="my-2"/>
+            <div class="mb-2">
+              <div class="small text-muted">Subject</div>
+              <div class="fw-semibold">{{ ticket.subject }}</div>
+            </div>
+            <hr class="my-2"/>
+            <div>
+              <div class="small text-muted">Description</div>
+              <div class="small mt-1" style="white-space: pre-wrap;">{{ ticket.description }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header fw-semibold small text-muted text-uppercase">
+            <i class="bi bi-cpu me-1"></i>AI Analysis
+          </div>
+          <div class="card-body">
+            <div class="mb-2 d-flex justify-content-between align-items-center">
+              <span class="small text-muted">Routed to</span>
+              <span class="badge bg-dark">{{ ticket.assignee_team }}</span>
+            </div>
+            <div class="mb-2 d-flex justify-content-between align-items-center">
+              <span class="small text-muted">Confidence</span>
+              <div class="d-flex align-items-center gap-2">
+                <div class="progress" style="width:80px; height:6px;">
+                  <div class="progress-bar bg-success" style="width:{{ (ticket.confidence * 100)|int }}%"></div>
+                </div>
+                <span class="small fw-semibold">{{ (ticket.confidence * 100)|int }}%</span>
+              </div>
+            </div>
+            <hr class="my-2"/>
+            <div class="small text-muted">Reasoning</div>
+            <div class="small mt-1 fst-italic">{{ ticket.reasoning }}</div>
+          </div>
+        </div>
+
+        {% if ticket.assignee_email %}
+        <div class="card">
+          <div class="card-header fw-semibold small text-muted text-uppercase">
+            <i class="bi bi-send me-1"></i>Will Be Sent To
+          </div>
+          <div class="card-body small">
+            <div><i class="bi bi-envelope me-2 text-muted"></i>{{ ticket.assignee_email }}</div>
+            <div class="mt-1"><i class="bi bi-slack me-2 text-muted"></i>{{ ticket.assignee_slack }}</div>
+          </div>
+        </div>
+        {% endif %}
+
+        {% if sources %}
+        <div class="card mt-3">
+          <div class="card-header fw-semibold small text-muted text-uppercase">
+            <i class="bi bi-book me-1"></i>Sources Used
+          </div>
+          <div class="card-body">
+            {% for source in sources %}
+              <span class="badge bg-light text-dark border me-1 mb-1 small">{{ source }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+      </div>
+
+      <!-- Right: Draft response + actions -->
+      <div class="col-lg-7">
+
+        {% if readonly %}
+          <!-- Read-only view for resolved tickets -->
+          <div class="card">
+            <div class="card-header fw-semibold small text-muted text-uppercase d-flex justify-content-between">
+              <span><i class="bi bi-check-circle me-1 text-success"></i>Final Response Sent</span>
+              <span class="badge bg-{{ 'success' if ticket.status == 'resolved' else 'warning' }}">{{ ticket.status }}</span>
+            </div>
+            <div class="card-body">
+              <div class="response-preview p-3" style="white-space: pre-wrap; font-family: inherit;">{{ ticket.final_response or ticket.draft_response }}</div>
+            </div>
+          </div>
+
+        {% else %}
+          <!-- Editable review -->
+          <div class="card">
+            <div class="card-header fw-semibold small text-muted text-uppercase d-flex align-items-center gap-2">
+              <i class="bi bi-pencil-square"></i>
+              <span>AI Draft Response</span>
+              <span class="ms-auto badge bg-warning text-dark">Awaiting Approval</span>
+            </div>
+            <div class="card-body">
+              <p class="text-muted small mb-3">
+                <i class="bi bi-info-circle me-1"></i>
+                Review the AI-generated draft below. Edit freely before approving.
+              </p>
+              <form action="/approve/{{ ticket.id }}" method="POST" id="approveForm">
+                <textarea class="form-control font-monospace small"
+                  name="final_response"
+                  id="responseEditor"
+                  rows="14"
+                  style="resize: vertical; line-height: 1.6;">{{ ticket.draft_response }}</textarea>
+
+                <div class="d-flex gap-2 mt-3">
+                  <button type="submit" class="btn btn-success flex-grow-1" id="approveBtn">
+                    <i class="bi bi-check-lg me-2"></i>Approve & Send Response
+                  </button>
+                </div>
+              </form>
+
+              <form action="/reject/{{ ticket.id }}" method="POST" class="mt-2">
+                <button type="submit" class="btn btn-outline-danger w-100 btn-sm"
+                  onclick="return confirm('Escalate this ticket for manual handling?')">
+                  <i class="bi bi-arrow-up-circle me-1"></i>Escalate for Manual Handling
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <div class="alert alert-info mt-3 small">
+            <i class="bi bi-lightbulb me-2"></i>
+            <strong>FDE Note:</strong> This human-in-the-loop step ensures AI responses are reviewed before reaching employees.
+            In production, low-priority tickets with high confidence could be auto-approved.
+          </div>
+
+        {% endif %}
+
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

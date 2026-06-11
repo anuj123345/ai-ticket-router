@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — AI Ticket Router{% endblock %}
+
+{% block content %}
+
+{% set priority_colors = {'Critical': 'danger', 'High': 'warning', 'Medium': 'primary', 'Low': 'secondary'} %}
+{% set status_colors = {'pending_review': 'warning', 'resolved': 'success', 'escalated': 'danger'} %}
+{% set status_labels = {'pending_review': 'Pending Review', 'resolved': 'Resolved', 'escalated': 'Escalated'} %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h4 fw-bold mb-0"><i class="bi bi-grid-1x2 me-2"></i>Ticket Dashboard</h1>
+  <a href="/" class="btn btn-primary btn-sm">
+    <i class="bi bi-plus me-1"></i>New Ticket
+  </a>
+</div>
+
+<!-- Stats -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="stat-card text-center p-3">
+      <div class="stat-number">{{ stats.total }}</div>
+      <div class="stat-label">Total Tickets</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card text-center p-3" style="border-color: var(--color-warning);">
+      <div class="stat-number text-warning">{{ stats.by_status.get('pending_review', 0) }}</div>
+      <div class="stat-label">Pending Review</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card text-center p-3" style="border-color: var(--color-success);">
+      <div class="stat-number text-success">{{ stats.by_status.get('resolved', 0) }}</div>
+      <div class="stat-label">Resolved</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card text-center p-3" style="border-color: var(--color-danger);">
+      <div class="stat-number text-danger">{{ stats.by_status.get('escalated', 0) }}</div>
+      <div class="stat-label">Escalated</div>
+    </div>
+  </div>
+</div>
+
+<!-- By Department -->
+{% if stats.by_department %}
+<div class="row g-3 mb-4">
+  {% for dept, count in stats.by_department.items() %}
+  <div class="col-6 col-md-2">
+    <div class="dept-badge text-center py-2 px-3">
+      <div class="fw-bold">{{ count }}</div>
+      <div class="small text-muted">{{ dept }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Ticket table -->
+{% if tickets %}
+<div class="card shadow-sm">
+  <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-list-ul me-2"></i>All Tickets</span>
+    <span class="text-muted small">{{ tickets|length }} tickets</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3" style="width:50px">#</th>
+          <th>Subject</th>
+          <th>From</th>
+          <th>Department</th>
+          <th>Priority</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ticket in tickets %}
+        <tr>
+          <td class="ps-3 text-muted small">{{ ticket.id }}</td>
+          <td>
+            <div class="fw-semibold small">{{ ticket.subject[:60] }}{% if ticket.subject|length > 60 %}…{% endif %}</div>
+          </td>
+          <td class="small text-muted">{{ ticket.submitter }}</td>
+          <td>
+            <span class="badge bg-light text-dark border small">{{ ticket.department }}</span>
+          </td>
+          <td>
+            <span class="badge bg-{{ priority_colors.get(ticket.priority, 'secondary') }}-subtle text-{{ priority_colors.get(ticket.priority, 'secondary') }} border border-{{ priority_colors.get(ticket.priority, 'secondary') }}-subtle small">
+              {{ ticket.priority }}
+            </span>
+          </td>
+          <td>
+            <span class="badge bg-{{ status_colors.get(ticket.status, 'secondary') }}-subtle text-{{ status_colors.get(ticket.status, 'secondary') }} border border-{{ status_colors.get(ticket.status, 'secondary') }}-subtle small">
+              {{ status_labels.get(ticket.status, ticket.status) }}
+            </span>
+          </td>
+          <td class="small text-muted">{{ ticket.created_at[:16] }}</td>
+          <td>
+            {% if ticket.status == 'pending_review' %}
+              <a href="/review/{{ ticket.id }}" class="btn btn-warning btn-sm">
+                <i class="bi bi-eye me-1"></i>Review
+              </a>
+            {% else %}
+              <a href="/ticket/{{ ticket.id }}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-eye me-1"></i>View
+              </a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+<div class="text-center py-5 text-muted">
+  <i class="bi bi-inbox display-4 d-block mb-3"></i>
+  <h5>No tickets yet</h5>
+  <p>Submit your first ticket to see the AI in action.</p>
+  <a href="/" class="btn btn-primary">Submit a Ticket</a>
+</div>
+{% endif %}
+
+{% endblock %}

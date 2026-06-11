@@ -1,0 +1,5 @@
+flask==3.0.3
+python-dotenv==1.0.1
+openai==1.35.7
+chromadb==0.5.3
+sentence-transformers==3.0.1

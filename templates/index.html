@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Submit a Ticket — AI Ticket Router{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+
+    <div class="text-center mb-5">
+      <div class="hero-icon mx-auto mb-3">
+        <i class="bi bi-send-fill"></i>
+      </div>
+      <h1 class="h3 fw-bold">Submit a Support Ticket</h1>
+      <p class="text-muted">Our AI will classify your request, route it to the right team, and draft a response — all instantly.</p>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <form action="/submit" method="POST" id="ticketForm">
+
+          <div class="row g-3 mb-3">
+            <div class="col-sm-6">
+              <label class="form-label fw-semibold">Your Name</label>
+              <input type="text" class="form-control" name="submitter" placeholder="e.g. Jane Smith" required />
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label fw-semibold">Your Email</label>
+              <input type="email" class="form-control" name="email" placeholder="jane@company.com" required />
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Subject</label>
+            <input type="text" class="form-control" name="subject" placeholder="Brief summary of the issue" required />
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Description</label>
+            <textarea class="form-control" name="description" rows="5"
+              placeholder="Describe the issue in detail. What happened? What do you need? When is it needed by?" required></textarea>
+            <div class="form-text">More detail = better AI response</div>
+          </div>
+
+          <div class="d-grid">
+            <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
+              <span class="btn-text"><i class="bi bi-cpu me-2"></i>Submit & Analyze with AI</span>
+              <span class="btn-loading d-none">
+                <span class="spinner-border spinner-border-sm me-2" role="status"></span>Analyzing ticket...
+              </span>
+            </button>
+          </div>
+
+        </form>
+      </div>
+    </div>
+
+    <!-- How it works -->
+    <div class="mt-5">
+      <h6 class="text-muted text-uppercase fw-bold mb-3 small">How it works</h6>
+      <div class="row g-3">
+        <div class="col-sm-4">
+          <div class="step-card text-center p-3">
+            <div class="step-num">1</div>
+            <div class="fw-semibold mt-2 small">AI Classification</div>
+            <div class="text-muted" style="font-size:0.8rem">Routes to IT, HR, Finance, or Engineering</div>
+          </div>
+        </div>
+        <div class="col-sm-4">
+          <div class="step-card text-center p-3">
+            <div class="step-num">2</div>
+            <div class="fw-semibold mt-2 small">RAG Response Draft</div>
+            <div class="text-muted" style="font-size:0.8rem">AI drafts a reply using company docs</div>
+          </div>
+        </div>
+        <div class="col-sm-4">
+          <div class="step-card text-center p-3">
+            <div class="step-num">3</div>
+            <div class="fw-semibold mt-2 small">Human Review</div>
+            <div class="text-muted" style="font-size:0.8rem">Agent edits and approves before sending</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.getElementById("ticketForm").addEventListener("submit", function() {
+    const btn = document.getElementById("submitBtn");
+    btn.querySelector(".btn-text").classList.add("d-none");
+    btn.querySelector(".btn-loading").classList.remove("d-none");
+    btn.disabled = true;
+  });
+</script>
+{% endblock %}
