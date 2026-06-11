@@ -7,7 +7,11 @@ import sqlite3
 import os
 from datetime import datetime
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "tickets.db")
+# On Vercel, only /tmp is writable. Locally use the project folder.
+DB_PATH = os.environ.get(
+    "DB_PATH",
+    os.path.join(os.path.dirname(__file__), "..", "tickets.db")
+)
 
 
 def get_connection():
