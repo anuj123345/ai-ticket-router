@@ -2,172 +2,6 @@
 {% block title %}Welcome — AI Enterprise Platform{% endblock %}
 
 {% block content %}
-<style>
-  /* ── Display Stack ─────────────────────────────────── */
-  .display-stack-outer {
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    padding: 2rem 2rem 10rem;
-    overflow: visible;
-    animation: dsIn 0.7s cubic-bezier(0.22,1,0.36,1) both;
-  }
-  @keyframes dsIn {
-    from { opacity: 0; transform: translateY(20px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-
-  .display-stack {
-    display: grid;
-    grid-template-areas: 'stack';
-    place-items: start start;
-    position: relative;
-  }
-
-  .dc-card {
-    grid-area: stack;
-    position: relative;
-    width: 440px;
-    border-radius: 16px;
-    border: 1.5px solid #e5e7eb;
-    background: rgba(255,255,255,0.9);
-    backdrop-filter: blur(8px);
-    padding: 1.4rem 1.6rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    text-decoration: none;
-    color: inherit;
-    transform: skewY(-8deg);
-    transition:
-      transform 0.65s cubic-bezier(0.22,1,0.36,1),
-      filter     0.55s ease,
-      box-shadow 0.45s ease;
-    overflow: visible;
-  }
-
-  /* Right-side depth gradient */
-  .dc-card::after {
-    content: '';
-    position: absolute;
-    right: -4px; top: -5%;
-    height: 110%; width: 55%;
-    background: linear-gradient(to left, #f9fafb 0%, transparent 100%);
-    pointer-events: none;
-    z-index: 4;
-    transition: opacity 0.5s ease;
-  }
-
-  /* Grayscale overlay for back cards */
-  .dc-card::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    background: rgba(249,250,251,0.55);
-    pointer-events: none;
-    z-index: 3;
-    transition: opacity 0.5s ease;
-  }
-
-  /* ── Card 1 — back ── */
-  .dc-card:nth-child(1) {
-    z-index: 1;
-    filter: grayscale(100%);
-  }
-  .dc-card:nth-child(1):hover {
-    transform: skewY(-8deg) translateY(-44px);
-    filter: grayscale(0%);
-    box-shadow: 0 24px 64px rgba(0,0,0,0.13);
-  }
-  .dc-card:nth-child(1):hover::before,
-  .dc-card:nth-child(1):hover::after { opacity: 0; }
-
-  /* ── Card 2 — middle ── */
-  .dc-card:nth-child(2) {
-    z-index: 2;
-    filter: grayscale(100%);
-    transform: skewY(-8deg) translateX(60px) translateY(40px);
-  }
-  .dc-card:nth-child(2):hover {
-    transform: skewY(-8deg) translateX(60px) translateY(-6px);
-    filter: grayscale(0%);
-    box-shadow: 0 24px 64px rgba(0,0,0,0.13);
-  }
-  .dc-card:nth-child(2):hover::before,
-  .dc-card:nth-child(2):hover::after { opacity: 0; }
-
-  /* ── Card 3 — front ── */
-  .dc-card:nth-child(3) {
-    z-index: 3;
-    transform: skewY(-8deg) translateX(120px) translateY(80px);
-    border-color: #d1d5db;
-  }
-  .dc-card:nth-child(3)::before,
-  .dc-card:nth-child(3)::after { display: none; }
-  .dc-card:nth-child(3):hover {
-    transform: skewY(-8deg) translateX(120px) translateY(40px);
-    box-shadow: 0 24px 64px rgba(0,0,0,0.13);
-  }
-
-  /* ── Card content ── */
-  .dc-inner { position: relative; z-index: 5; display: flex; flex-direction: column; gap: 0.6rem; }
-
-  .dc-top { display: flex; align-items: center; gap: 0.65rem; }
-
-  .dc-badge {
-    width: 34px; height: 34px;
-    border-radius: 9px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.95rem;
-    flex-shrink: 0;
-  }
-
-  .dc-title {
-    font-size: 1rem;
-    font-weight: 700;
-    color: #111827;
-    letter-spacing: -0.015em;
-    white-space: nowrap;
-  }
-
-  .dc-desc {
-    font-size: 0.8rem;
-    color: #6b7280;
-    line-height: 1.55;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .dc-stats {
-    display: flex;
-    align-items: center;
-    gap: 1.1rem;
-    font-size: 0.71rem;
-    color: #9ca3af;
-    flex-wrap: wrap;
-  }
-  .dc-stats span {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    white-space: nowrap;
-  }
-
-  /* ── Mobile fallback ── */
-  @media (max-width: 640px) {
-    .display-stack-outer { padding: 1rem 1rem 2rem; }
-    .display-stack { grid-template-areas: none; display: flex; flex-direction: column; gap: 1rem; }
-    .dc-card {
-      width: 100%;
-      transform: none !important;
-      filter: grayscale(0%) !important;
-    }
-    .dc-card::before, .dc-card::after { display: none !important; }
-  }
-</style>
-
 <div class="welcome-wrap">
 
   <!-- Hero -->
@@ -179,65 +13,51 @@
     </div>
   </div>
 
-  <!-- Display Stack — three stacked animated cards -->
-  <div class="display-stack-outer">
-    <div class="display-stack">
+  <!-- Module cards -->
+  <div class="welcome-modules">
 
-      <!-- Card 1 (back) — AI Ticket Router -->
-      <a href="/submit-ticket" class="dc-card">
-        <div class="dc-inner">
-          <div class="dc-top">
-            <div class="dc-badge" style="background:#ede9fe;">
-              <i class="bi bi-ticket-perforated-fill" style="color:#7c3aed;"></i>
-            </div>
-            <span class="dc-title">AI Ticket Router</span>
-          </div>
-          <p class="dc-desc">Submit tickets · AI classifies, routes &amp; drafts responses automatically</p>
-          <div class="dc-stats">
-            <span><i class="bi bi-stack"></i> {{ stats.total }} tickets</span>
-            <span><i class="bi bi-hourglass-split"></i> {{ stats.by_status.get('pending_review', 0) }} pending</span>
-            <span><i class="bi bi-check-circle"></i> {{ stats.by_status.get('resolved', 0) }} resolved</span>
-          </div>
+    <a href="/submit-ticket" class="welcome-card">
+      <div class="wc-icon wc-icon-ticket"><i class="bi bi-ticket-perforated-fill"></i></div>
+      <div class="wc-body">
+        <div class="wc-title">AI Ticket Router</div>
+        <div class="wc-desc">Submit support tickets and let AI classify, prioritize, and draft responses automatically. Human-in-the-loop review before anything is sent.</div>
+        <div class="wc-stats">
+          <span><i class="bi bi-stack me-1"></i>{{ stats.total }} tickets</span>
+          <span><i class="bi bi-hourglass-split me-1"></i>{{ stats.by_status.get('pending_review', 0) }} pending</span>
+          <span><i class="bi bi-check-circle me-1"></i>{{ stats.by_status.get('resolved', 0) }} resolved</span>
         </div>
-      </a>
+      </div>
+      <div class="wc-arrow"><i class="bi bi-arrow-right"></i></div>
+    </a>
 
-      <!-- Card 2 (middle) — Ops Dashboard -->
-      <a href="/ops" class="dc-card">
-        <div class="dc-inner">
-          <div class="dc-top">
-            <div class="dc-badge" style="background:#dbeafe;">
-              <i class="bi bi-bar-chart-line-fill" style="color:#2563eb;"></i>
-            </div>
-            <span class="dc-title">Ops Dashboard</span>
-          </div>
-          <p class="dc-desc">Ask your data anything · Natural language → SQL · Auto-charting</p>
-          <div class="dc-stats">
-            <span><i class="bi bi-translate"></i> Natural language → SQL</span>
-            <span><i class="bi bi-bar-chart"></i> Auto-charting</span>
-            <span><i class="bi bi-stars"></i> AI summaries</span>
-          </div>
+    <a href="/ops" class="welcome-card">
+      <div class="wc-icon wc-icon-ops"><i class="bi bi-bar-chart-line-fill"></i></div>
+      <div class="wc-body">
+        <div class="wc-title">Ops Dashboard</div>
+        <div class="wc-desc">Ask questions about your ticket data in plain English. AI writes the SQL, runs it against your database, charts the result, and explains it.</div>
+        <div class="wc-stats">
+          <span><i class="bi bi-translate me-1"></i>Natural language → SQL</span>
+          <span><i class="bi bi-bar-chart me-1"></i>Auto-charting</span>
+          <span><i class="bi bi-stars me-1"></i>AI summaries</span>
         </div>
-      </a>
+      </div>
+      <div class="wc-arrow"><i class="bi bi-arrow-right"></i></div>
+    </a>
 
-      <!-- Card 3 (front) — Onboarding Assistant -->
-      <a href="/onboarding" class="dc-card">
-        <div class="dc-inner">
-          <div class="dc-top">
-            <div class="dc-badge" style="background:#dcfce7;">
-              <i class="bi bi-mortarboard-fill" style="color:#16a34a;"></i>
-            </div>
-            <span class="dc-title">Onboarding Assistant</span>
-          </div>
-          <p class="dc-desc">Ask about policies, benefits &amp; procedures · Self-improving with every rating</p>
-          <div class="dc-stats">
-            <span><i class="bi bi-file-earmark-text"></i> {{ doc_count }} docs</span>
-            <span><i class="bi bi-hand-thumbs-up"></i> {{ qa_count }} verified Q&As</span>
-            <span><i class="bi bi-arrow-repeat"></i> Self-improving</span>
-          </div>
+    <a href="/onboarding" class="welcome-card">
+      <div class="wc-icon wc-icon-ob"><i class="bi bi-mortarboard-fill"></i></div>
+      <div class="wc-body">
+        <div class="wc-title">Onboarding Assistant</div>
+        <div class="wc-desc">Ask anything about company policies, benefits, and procedures. Answers are grounded in your uploaded documents and get smarter with every thumbs-up.</div>
+        <div class="wc-stats">
+          <span><i class="bi bi-file-earmark-text me-1"></i>{{ doc_count }} docs</span>
+          <span><i class="bi bi-hand-thumbs-up me-1"></i>{{ qa_count }} verified Q&As</span>
+          <span><i class="bi bi-arrow-repeat me-1"></i>Self-improving</span>
         </div>
-      </a>
+      </div>
+      <div class="wc-arrow"><i class="bi bi-arrow-right"></i></div>
+    </a>
 
-    </div>
   </div>
 
   <!-- Quick stats strip -->
