@@ -179,6 +179,21 @@ def landing():
     return render_template("landing.html")
 
 
+@app.route("/api/public-stats")
+def public_stats():
+    """Public stats endpoint — no login required. Safe to expose on landing page."""
+    try:
+        s = get_stats()
+        return jsonify({
+            "total":    s.get("total", 0),
+            "resolved": s.get("by_status", {}).get("resolved", 0),
+            "pending":  s.get("by_status", {}).get("pending_review", 0),
+            "depts":    len([k for k, v in s.get("by_dept", {}).items() if v > 0]),
+        })
+    except Exception:
+        return jsonify({"total": 0, "resolved": 0, "pending": 0, "depts": 0})
+
+
 # ─── Ticket Routes ────────────────────────────────────────────────────────────
 
 @app.route("/submit-ticket")

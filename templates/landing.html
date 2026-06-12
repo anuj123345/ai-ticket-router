@@ -485,6 +485,33 @@
         </div>
       </div>
 
+      <!-- Live stats strip -->
+      <div class="footer-stats-strip">
+        <div class="footer-stat">
+          <span class="fstat-value" id="stat-total">—</span>
+          <span class="fstat-label">Tickets Processed</span>
+        </div>
+        <div class="fstat-divider"></div>
+        <div class="footer-stat">
+          <span class="fstat-value fstat-green" id="stat-resolved">—</span>
+          <span class="fstat-label">Resolved</span>
+        </div>
+        <div class="fstat-divider"></div>
+        <div class="footer-stat">
+          <span class="fstat-value fstat-orange" id="stat-pending">—</span>
+          <span class="fstat-label">Pending Review</span>
+        </div>
+        <div class="fstat-divider"></div>
+        <div class="footer-stat">
+          <span class="fstat-value fstat-blue" id="stat-depts">—</span>
+          <span class="fstat-label">Departments Active</span>
+        </div>
+        <div class="fstat-live">
+          <span class="live-dot"></span>
+          Live
+        </div>
+      </div>
+
       <!-- Bottom bar -->
       <div class="footer-bottom">
         <p class="footer-copy">© 2026 HAUL! All Rights Reserved</p>
@@ -688,6 +715,78 @@
     border-color: #f97316;
   }
 
+  /* ── Live stats strip ── */
+  .footer-stats-strip {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 1rem 1.5rem;
+    background: #f9fafb;
+    border-top: 1px solid #f3f4f6;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  @media (min-width: 768px) {
+    .footer-stats-strip { padding: 1rem 2.5rem; flex-wrap: nowrap; gap: 0; }
+  }
+  .footer-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    min-width: 100px;
+  }
+  .fstat-value {
+    font-family: 'Inter', sans-serif;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1;
+    margin-bottom: 0.2rem;
+    transition: all 0.4s ease;
+  }
+  .fstat-green  { color: #16a34a; }
+  .fstat-orange { color: #ea580c; }
+  .fstat-blue   { color: #2563eb; }
+  .fstat-label {
+    font-size: 0.68rem;
+    font-weight: 500;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+  }
+  .fstat-divider {
+    width: 1px;
+    height: 32px;
+    background: #e5e7eb;
+    flex-shrink: 0;
+    display: none;
+  }
+  @media (min-width: 768px) { .fstat-divider { display: block; margin: 0 1.5rem; } }
+  .fstat-live {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: #16a34a;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-left: auto;
+    white-space: nowrap;
+  }
+  .live-dot {
+    width: 7px; height: 7px;
+    background: #16a34a;
+    border-radius: 50%;
+    animation: live-pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes live-pulse {
+    0%, 100% { opacity: 1; transform: scale(1);    }
+    50%       { opacity: 0.4; transform: scale(0.7); }
+  }
+
   /* ── Truck ── */
   .truck-layer {
     position: absolute;
@@ -721,6 +820,34 @@
     entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible') })
   }, { threshold: 0.08 })
   document.querySelectorAll('.reveal, .view-below-text').forEach(el => observer.observe(el))
+
+  // Live stats
+  function animateCount(el, target) {
+    const start = parseInt(el.textContent) || 0
+    const diff  = target - start
+    const steps = 20
+    let   step  = 0
+    const timer = setInterval(() => {
+      step++
+      el.textContent = Math.round(start + (diff * step / steps))
+      if (step >= steps) { el.textContent = target; clearInterval(timer) }
+    }, 30)
+  }
+
+  function loadStats() {
+    fetch('/api/public-stats')
+      .then(r => r.json())
+      .then(d => {
+        animateCount(document.getElementById('stat-total'),    d.total)
+        animateCount(document.getElementById('stat-resolved'), d.resolved)
+        animateCount(document.getElementById('stat-pending'),  d.pending)
+        animateCount(document.getElementById('stat-depts'),    d.depts)
+      })
+      .catch(() => {})
+  }
+
+  loadStats()
+  setInterval(loadStats, 30000)   // refresh every 30 seconds
 
   // Truck parallax
   const parallaxSection = document.getElementById('parallaxSection')
