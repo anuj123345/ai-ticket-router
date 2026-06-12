@@ -103,6 +103,30 @@ body {
 .navbar .nav-link:hover { background: var(--surface-2); color: var(--text) !important; }
 .navbar .nav-link.active { background: var(--primary-light); color: var(--primary) !important; }
 
+/* ── Navbar mobile ─────────────────────────────────────────── */
+@media (max-width: 991px) {
+  #navMenu {
+    background: #fff;
+    border-top: 1px solid var(--border);
+    margin-top: 0.5rem;
+    padding: 0.75rem 0;
+    border-radius: 0 0 var(--radius) var(--radius);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+  }
+  .navbar .nav-link {
+    padding: 0.625rem 1rem !important;
+    border-radius: 6px;
+    margin: 0 0.5rem;
+  }
+  .nav-user-pill {
+    margin: 0.5rem 1rem 0;
+    padding: 0.625rem 0.75rem;
+    background: var(--surface-2);
+    border-radius: 8px;
+    width: calc(100% - 2rem);
+  }
+}
+
 /* ── Main container ────────────────────────────────────────── */
 main.container {
   max-width: 1100px;
