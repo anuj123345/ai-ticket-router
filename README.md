@@ -1,101 +1,229 @@
-# AI Ticket Router
+# Solace — AI-Powered Enterprise Support Platform
 
-An internal support ticket system where AI classifies requests, routes them to the right team, and drafts responses grounded in company documentation — with a human-in-the-loop approval step before anything is sent.
+> The operating system for modern support teams.
 
-Built as part of a Forward Deployed Engineer (FDE) portfolio to demonstrate real-world AI workflow integration skills.
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-ai--ticket--router.vercel.app-7367F0?style=flat-square&logo=vercel)](https://ai-ticket-router.vercel.app)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![Flask](https://img.shields.io/badge/Flask-3.x-000000?style=flat-square&logo=flask)](https://flask.palletsprojects.com)
+[![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?style=flat-square&logo=supabase)](https://supabase.com)
+[![NVIDIA NIM](https://img.shields.io/badge/NVIDIA-NIM-76B900?style=flat-square&logo=nvidia)](https://build.nvidia.com)
+[![Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-000000?style=flat-square&logo=vercel)](https://vercel.com)
 
 ---
 
-## The Problem
+Solace is a full-stack AI-powered enterprise support platform that automates ticket routing, enables natural-language data querying, and delivers a RAG-based onboarding assistant — all with a human-in-the-loop review layer before anything reaches your team.
 
-Internal support teams at most companies handle hundreds of repetitive tickets per week. The average ticket takes 5–15 minutes to triage, route, and respond to — even when the answer exists in an internal doc. This is a pure workflow inefficiency problem that AI is well-suited to solve.
+Built as a production-grade portfolio project demonstrating end-to-end AI engineering: LLM classification, retrieval-augmented generation, natural language to SQL, and a modern Flask + Supabase backend deployed on Vercel.
 
-**What this system does:**
+---
 
-- Receives a support ticket (subject + description) from an employee
-- Uses an LLM to classify it by department and priority in under 1 second
-- Retrieves relevant company documentation using RAG (vector similarity search)
-- Drafts a grounded, accurate response based only on real company docs
-- Presents the draft to a human agent for review and editing before approval
-- Logs all tickets and outcomes to a dashboard
+## What It Does
+
+### 🎫 AI Ticket Router
+Employees submit support tickets. The AI instantly:
+- Classifies the ticket into the correct department (IT, HR, Finance, Engineering, General)
+- Assigns a priority level (Critical / High / Medium / Low) with confidence score and reasoning
+- Searches a RAG knowledge base for relevant context
+- Drafts a complete, context-aware response
+
+A human reviewer then approves or escalates before anything is sent — keeping AI fast and humans accountable.
+
+### 📊 Ops Analytics Dashboard
+Ask questions about your ticket data in plain English:
+
+> *"Which department has the most unresolved tickets this week?"*
+
+The AI writes the SQL, runs it against the live database, auto-generates a chart, and explains the result in plain language. No SQL knowledge required.
+
+### 🎓 Onboarding Assistant
+A chat interface grounded in your company's uploaded documents (PDF, DOCX, TXT, MD). New hires ask anything about benefits, policies, or procedures and get cited, accurate answers. Admins can upload docs and verify Q&A pairs to improve quality over time.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.11, Flask 3.x |
+| AI / LLM | NVIDIA NIM — `meta/llama-3.1-70b-instruct` |
+| Embeddings | NVIDIA NIM — `nvidia/nv-embedqa-e5-v5` |
+| Database | Supabase (PostgreSQL + pgvector) |
+| Frontend | Vanilla HTML/CSS/JS, Bootstrap 5, Chart.js |
+| Deployment | Vercel (serverless Python) |
+| Auth | Session-based with bcrypt password hashing |
+| File Processing | PyPDF2, python-docx |
 
 ---
 
 ## Architecture
 
 ```
-Employee submits ticket
-        │
-        ▼
-┌─────────────────────┐
-│  Flask Web App      │  ← Handles routing, sessions, DB writes
-└────────┬────────────┘
-         │
-         ├──► Classifier (LLM)
-         │    • Sends subject + description to NVIDIA NIM API
-         │    • Returns: department, priority, confidence, reasoning
-         │
-         ├──► RAG Pipeline
-         │    • Embeds query with sentence-transformers (local)
-         │    • Retrieves top-4 chunks from ChromaDB
-         │    • Formats context for prompt injection
-         │
-         ├──► Response Generator (LLM + RAG context)
-         │    • Drafts a grounded response using retrieved docs
-         │    • Does NOT invent policies or contacts
-         │
-         └──► Human Review (HITL)
-              • Agent reviews and edits the draft
-              • Approves → stored as final, status = resolved
-              • Escalates → flagged for manual handling
+┌─────────────────────────────────────────────────────────┐
+│                    Flask App (app.py)                   │
+│                                                         │
+│  POST /submit   →  classifier.py  →  response_gen.py   │
+│  POST /ops/query →  nl_query.py                         │
+│  POST /onboarding/chat → onboarding_agent.py            │
+└──────────────────────┬──────────────────────────────────┘
+                       │
+           ┌───────────┴───────────┐
+           │                       │
+    NVIDIA NIM API           Supabase (PostgreSQL)
+    LLM + Embeddings         tickets · users · docs
+                             chunks (pgvector)
+                             conversations · feedback
 ```
 
----
+**Core services:**
 
-## Key Technical Decisions
-
-| Decision | Choice | Why |
-|---|---|---|
-| LLM API | NVIDIA NIM (OpenAI-compatible) | Free tier, fast, swap-friendly |
-| Embeddings | sentence-transformers (local) | No API cost, runs offline |
-| Vector DB | ChromaDB (in-memory) | Zero config, easy to swap to Pinecone |
-| Storage | SQLite | No infra needed for a portfolio project |
-| Frontend | Flask + Bootstrap 5 | Clean, production-like UI without React complexity |
-
-**Why human-in-the-loop matters here:** An AI response about payroll or security policy going directly to an employee without review is a real liability. The HITL step is not just a safety feature — it's the architecture choice that makes this deployable at an actual company.
+| File | Responsibility |
+|---|---|
+| `classifier.py` | Sends ticket to LLM, parses structured JSON for dept/priority/confidence/reasoning |
+| `rag.py` | Chunks documents, generates NVIDIA embeddings, stores in pgvector, retrieves top-k at query time |
+| `response_gen.py` | Combines RAG context + ticket metadata to draft a personalized reply |
+| `nl_query.py` | Converts natural language → safe SQL via LLM, runs query, generates chart config + plain-English summary |
+| `doc_processor.py` | Parses PDF/DOCX/TXT/MD into chunks and stores embeddings |
+| `onboarding_agent.py` | RAG-based Q&A with citation extraction and verified Q&A promotion |
 
 ---
 
-## Setup
+## Getting Started
 
-### 1. Clone and install
+### Prerequisites
+- Python 3.11+
+- A [Supabase](https://supabase.com) project with `pgvector` enabled
+- An [NVIDIA NIM](https://build.nvidia.com) API key
+
+### 1. Clone the repo
 
 ```bash
-git clone https://github.com/your-username/ai-ticket-router
-cd ai-ticket-router
+git clone https://github.com/anuj123345/ai-ticket-router.git
+cd ai-ticket-router/ticket-router
+```
+
+### 2. Install dependencies
+
+```bash
 pip install -r requirements.txt
 ```
 
-### 2. Get a free NVIDIA NIM API key
+### 3. Configure environment variables
 
-1. Go to [build.nvidia.com](https://build.nvidia.com)
-2. Sign up (free) and click any model → "Get API Key"
-3. Copy the key (starts with `nvapi-...`)
+Create a `.env` file in `ticket-router/`:
 
-### 3. Configure environment
+```env
+# NVIDIA NIM
+NVIDIA_API_KEY=your_nvidia_nim_api_key
 
-```bash
-cp .env.example .env
-# Edit .env and add your NVIDIA_API_KEY
+# Supabase
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your_supabase_anon_key
+
+# Flask
+SECRET_KEY=a-long-random-secret-string
+ADMIN_PASSWORD=your-admin-panel-password
 ```
 
-### 4. Run
+> `.env` is already in `.gitignore` — never commit it.
+
+### 4. Set up the database
+
+Run this SQL in your Supabase SQL editor:
+
+```sql
+-- Enable pgvector
+create extension if not exists vector;
+
+-- Tickets
+create table tickets (
+  id             bigint primary key generated always as identity,
+  subject        text not null,
+  description    text not null,
+  submitter      text not null,
+  email          text not null,
+  department     text,
+  priority       text,
+  confidence     float,
+  reasoning      text,
+  assignee_team  text,
+  assignee_email text,
+  assignee_slack text,
+  draft_response text,
+  final_response text,
+  sources        text,
+  status         text default 'pending_review',
+  created_at     timestamptz default now()
+);
+
+-- Users
+create table users (
+  id         bigint primary key generated always as identity,
+  name       text not null,
+  email      text unique not null,
+  password   text not null,
+  role       text default 'user',
+  created_at timestamptz default now()
+);
+
+-- Documents (onboarding knowledge base)
+create table documents (
+  id          bigint primary key generated always as identity,
+  name        text not null,
+  type        text not null,
+  chunk_count int default 0,
+  created_at  timestamptz default now()
+);
+
+-- Chunks with vector embeddings
+create table chunks (
+  id          bigint primary key generated always as identity,
+  document_id bigint references documents(id) on delete cascade,
+  content     text not null,
+  embedding   vector(1024),
+  created_at  timestamptz default now()
+);
+
+-- Conversations (onboarding chat history)
+create table conversations (
+  id         bigint primary key generated always as identity,
+  question   text not null,
+  answer     text not null,
+  sources    jsonb,
+  created_at timestamptz default now()
+);
+
+-- Feedback (thumbs up/down + flagging)
+create table feedback (
+  id              bigint primary key generated always as identity,
+  conversation_id bigint references conversations(id),
+  rating          int,
+  is_flagged      boolean default false,
+  flag_comment    text,
+  created_at      timestamptz default now()
+);
+
+-- Similarity search function
+create or replace function match_chunks(
+  query_embedding vector(1024),
+  match_count     int default 5
+)
+returns table (id bigint, content text, similarity float)
+language sql stable as $$
+  select id, content,
+    1 - (embedding <=> query_embedding) as similarity
+  from chunks
+  order by embedding <=> query_embedding
+  limit match_count;
+$$;
+```
+
+### 5. Run locally
 
 ```bash
 python app.py
 ```
 
-Open [http://localhost:5000](http://localhost:5000)
+Open `http://localhost:5000` — register an account and start routing tickets.
 
 ---
 
@@ -103,47 +231,84 @@ Open [http://localhost:5000](http://localhost:5000)
 
 ```
 ticket-router/
-├── app.py                      # Flask routes and application logic
+├── app.py                    # Flask app — all routes
 ├── requirements.txt
-├── .env.example
-├── knowledge_base/             # Company docs indexed for RAG
-│   ├── it_support.md
-│   ├── hr_policies.md
-│   ├── finance_procedures.md
-│   └── engineering_runbook.md
-├── services/
-│   ├── llm_client.py           # NVIDIA NIM API wrapper
-│   ├── rag.py                  # ChromaDB indexing + retrieval
-│   ├── classifier.py           # Ticket classification
-│   └── response_gen.py         # Draft response generation
+├── vercel.json               # Vercel serverless config
+├── api/
+│   └── index.py              # Vercel entry point (wraps Flask)
 ├── models/
-│   └── db.py                   # SQLite operations
-├── templates/
-│   ├── base.html
-│   ├── index.html              # Ticket submission
-│   ├── review.html             # Human-in-the-loop review
-│   └── dashboard.html          # Ticket history + stats
-└── static/
-    └── style.css
+│   ├── auth.py               # User CRUD + bcrypt hashing
+│   └── db.py                 # Supabase client, ticket CRUD, stats
+├── services/
+│   ├── classifier.py         # LLM ticket classification
+│   ├── response_gen.py       # RAG-augmented response drafting
+│   ├── rag.py                # Embedding + pgvector retrieval
+│   ├── nl_query.py           # NL → SQL pipeline
+│   ├── doc_processor.py      # Document chunking + embedding
+│   └── onboarding_agent.py   # RAG Q&A with feedback loop
+├── static/
+│   └── style.css             # Global design system
+├── knowledge_base/           # Seed docs for RAG
+└── templates/
+    ├── base.html             # Shared navbar + layout
+    ├── landing.html          # Public marketing page
+    ├── login.html / register.html
+    ├── welcome.html          # Post-login home
+    ├── index.html            # Ticket submission
+    ├── review.html           # Human-in-the-loop review
+    ├── dashboard.html        # Ticket management
+    ├── ops_dashboard.html    # NL-to-SQL analytics
+    ├── onboarding.html       # Employee chat UI
+    ├── onboarding_admin.html # Document upload panel
+    ├── use_cases.html        # Public use cases page
+    ├── privacy.html
+    ├── terms.html
+    └── cookies.html
 ```
 
 ---
 
-## Extending This Project
+## Deploying to Vercel
 
-Ideas to take this further:
+1. Push to GitHub
+2. Import the repo in [Vercel](https://vercel.com/new)
+3. Set the **root directory** to `ticket-router/`
+4. Add all `.env` variables under **Settings → Environment Variables**
+5. Deploy
 
-- **Slack integration** — receive tickets from Slack messages via a slash command
-- **Auto-approve threshold** — if confidence > 90% and priority is Low, skip human review
-- **Email integration** — send the approved response via SendGrid or Gmail API
-- **Analytics dashboard** — track resolution time, accuracy by department, agent edits
-- **Feedback loop** — agents rate AI draft quality, use that data to improve prompts
-- **Multi-tenant** — support multiple companies with their own knowledge bases
+Vercel runs the app via `api/index.py` which wraps Flask as a serverless function.
 
 ---
 
-## Why This Project
+## Design Decisions
 
-This is a practical FDE-style project. Forward Deployed Engineers at companies like Anthropic, OpenAI, and Palantir build exactly this type of system: AI that plugs into existing workflows, respects human oversight, integrates with company data, and solves a real business problem — not a demo.
+**Human-in-the-loop by default.** The AI drafts but never sends. Every ticket goes through a review screen where a human edits the draft, approves, or escalates. This makes the system safe for production without sacrificing speed.
 
-The skills demonstrated here: RAG pipeline design, LLM API integration, workflow logic, human-in-the-loop architecture, and building something production-adjacent from scratch.
+**RAG over fine-tuning.** Instead of fine-tuning on company data (slow, expensive, hard to update), the system uses retrieval-augmented generation. Upload a new policy PDF and it's instantly queryable — no retraining.
+
+**pgvector over a dedicated vector DB.** Keeps the stack simple. Supabase's pgvector extension handles similarity search alongside relational queries in the same database, avoiding operational overhead of a separate service.
+
+**NL-to-SQL with guardrails.** The LLM generates SQL but the system validates it (SELECT only), parameterizes inputs, and returns structured results with chart config and a natural-language explanation.
+
+---
+
+## Contributing
+
+Contributions are welcome.
+
+1. Fork the repo
+2. Create a feature branch: `git checkout -b feat/your-feature`
+3. Commit your changes with a clear message
+4. Open a pull request describing what changed and why
+
+Please keep PRs focused — one feature or fix per PR.
+
+---
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.
+
+---
+
+<p align="center">Built with NVIDIA NIM · Flask · Supabase · Vercel</p>
