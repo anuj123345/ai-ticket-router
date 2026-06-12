@@ -598,8 +598,24 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    opacity: 1;
+    opacity: 0;
     z-index: 0;
+    transition: opacity 1.1s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .parallax-bg-video.faded-in {
+    opacity: 1;
+  }
+  /* Top fade — blends the section edge into the video */
+  .parallax-section::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 180px;
+    background: linear-gradient(to bottom, #fdfdfd 0%, transparent 100%);
+    z-index: 5;
+    pointer-events: none;
   }
 
   /* ── Footer card ── */
@@ -844,6 +860,18 @@
 
   loadStats()
   setInterval(loadStats, 30000)   // refresh every 30 seconds
+
+  // Parallax video fade-in on scroll
+  const parallaxVideo = document.querySelector('.parallax-bg-video')
+  if (parallaxVideo) {
+    const videoObserver = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) parallaxVideo.classList.add('faded-in')
+        else parallaxVideo.classList.remove('faded-in')
+      })
+    }, { threshold: 0.05 })
+    videoObserver.observe(parallaxVideo)
+  }
 
 </script>
 
