@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SOLACE — Eliminate Chaos, Restore Balance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Italiana&family=Manrope:wght@300;400;500;600&family=Marck+Script&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --red: #CC0000;
+      --red-dark: #a80000;
+    }
+
+    body {
+      font-family: 'Manrope', sans-serif;
+      background: var(--red);
+      color: #fff;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Video background ── */
+    .bg-video-wrap {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      overflow: hidden;
+    }
+    .bg-video-wrap video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.28;
+    }
+    .bg-video-wrap .overlay-h {
+      position: absolute;
+      inset-y: 0; left: 0;
+      width: 100%;
+      background: linear-gradient(to right,
+        var(--red) 0%,
+        var(--red) 35%,
+        rgba(204,0,0,0.85) 60%,
+        rgba(204,0,0,0.45) 80%,
+        transparent 100%);
+    }
+    .bg-video-wrap .overlay-b {
+      position: absolute;
+      bottom: 0; left: 0;
+      width: 100%;
+      height: 220px;
+      background: linear-gradient(to top,
+        var(--red) 0%,
+        rgba(204,0,0,0.8) 30%,
+        rgba(204,0,0,0.4) 70%,
+        transparent 100%);
+    }
+
+    /* ── Navbar ── */
+    nav {
+      position: relative;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.5rem 4rem;
+      background: rgba(180,0,0,0.4);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .nav-brand {
+      font-family: 'Italiana', serif;
+      font-size: 1.5rem;
+      letter-spacing: 0.15em;
+      color: #fff;
+      text-decoration: none;
+      user-select: none;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 2.5rem;
+      list-style: none;
+    }
+    .nav-links a {
+      font-size: 0.82rem;
+      letter-spacing: 0.1em;
+      color: rgba(255,255,255,0.65);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: #fff; }
+    .nav-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: #fff;
+      color: var(--red);
+      font-weight: 600;
+      font-size: 0.82rem;
+      padding: 0.6rem 1.4rem;
+      border-radius: 99px;
+      text-decoration: none;
+      transition: background 0.2s, transform 0.15s;
+    }
+    .nav-cta:hover { background: rgba(255,255,255,0.9); transform: translateY(-1px); }
+    .nav-hamburger {
+      display: none;
+      background: none;
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      padding: 0.25rem;
+    }
+    .mobile-menu {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      width: 100%;
+      background: rgba(180,0,0,0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      z-index: 40;
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease, opacity 0.3s ease;
+      opacity: 0;
+    }
+    .mobile-menu.open { max-height: 320px; opacity: 1; }
+    .mobile-menu ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      padding: 1.75rem 2rem;
+    }
+    .mobile-menu a {
+      color: rgba(255,255,255,0.8);
+      font-size: 0.9rem;
+      text-decoration: none;
+      letter-spacing: 0.08em;
+    }
+    .mobile-menu a:hover { color: #fff; }
+
+    /* ── Hero ── */
+    .hero {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      padding: 5rem 2rem 6rem;
+      text-align: center;
+    }
+    .hero-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      max-width: 860px;
+      width: 100%;
+    }
+
+    /* Logo + rings */
+    .logo-wrap {
+      position: relative;
+      width: 160px;
+      height: 160px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 3rem;
+    }
+    .ring {
+      position: absolute;
+      border-radius: 50%;
+      animation: ring-pulse 2.8s ease-in-out infinite;
+    }
+    @keyframes ring-pulse {
+      0%, 100% { transform: scale(1);     opacity: 0.7; }
+      50%       { transform: scale(1.05); opacity: 1;   }
+    }
+    .logo-svg { position: relative; z-index: 10; }
+
+    /* Text blocks */
+    .brand-label {
+      font-family: 'Italiana', serif;
+      font-size: 0.7rem;
+      letter-spacing: 0.7em;
+      text-transform: uppercase;
+      opacity: 0.55;
+      margin-bottom: 5rem;
+    }
+    .mission {
+      font-size: 0.92rem;
+      line-height: 2.1;
+      max-width: 400px;
+      text-transform: uppercase;
+      letter-spacing: 0.13em;
+      font-weight: 300;
+      opacity: 0.8;
+      margin-bottom: 5rem;
+    }
+    .divider {
+      width: 1px;
+      height: 64px;
+      background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.4), transparent);
+      margin: 0 auto 5rem;
+    }
+    .signature {
+      font-family: 'Marck Script', cursive;
+      font-size: clamp(68px, 14vw, 116px);
+      line-height: 1;
+      margin-bottom: 1.25rem;
+    }
+    .founder-label {
+      font-size: 0.56rem;
+      letter-spacing: 0.42em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.4);
+      margin-bottom: 6rem;
+    }
+    .paragraphs {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2.5rem;
+      margin-bottom: 4rem;
+    }
+    .paragraphs p {
+      font-size: 0.92rem;
+      line-height: 2;
+      max-width: 420px;
+      font-weight: 300;
+      opacity: 0.8;
+    }
+    .hero-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      background: #fff;
+      color: var(--red);
+      font-weight: 600;
+      font-size: 0.85rem;
+      padding: 1rem 2rem;
+      border-radius: 99px;
+      text-decoration: none;
+      transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+    }
+    .hero-cta:hover { background: rgba(255,255,255,0.92); transform: scale(1.04); }
+
+    /* ── Stats bar ── */
+    .stats-bar {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      border-top: 1px solid rgba(255,255,255,0.1);
+      background: rgba(160,0,0,0.3);
+      backdrop-filter: blur(8px);
+    }
+    .stats-inner {
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-around;
+      gap: 2rem;
+      padding: 3rem 2rem;
+      text-align: center;
+    }
+    .stat-value {
+      font-family: 'Italiana', serif;
+      font-size: 2.5rem;
+      line-height: 1;
+      margin-bottom: 0.5rem;
+    }
+    .stat-label {
+      font-size: 0.65rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      opacity: 0.5;
+    }
+
+    /* ── Reveal animation ── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.7s cubic-bezier(0.22,1,0.36,1), transform 0.7s cubic-bezier(0.22,1,0.36,1);
+    }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      nav { padding: 1.25rem 1.5rem; }
+      .nav-links, .nav-cta { display: none; }
+      .nav-hamburger { display: block; }
+      .stats-inner { flex-direction: column; gap: 2.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Video bg -->
+<div class="bg-video-wrap">
+  <video autoplay muted loop playsinline>
+    <source src="https://res.cloudinary.com/democloud/video/upload/v1/samples/sea-turtle" type="video/mp4">
+  </video>
+  <div class="overlay-h"></div>
+  <div class="overlay-b"></div>
+</div>
+
+<!-- Navbar -->
+<nav>
+  <a href="/" class="nav-brand">Solace</a>
+  <ul class="nav-links">
+    <li><a href="#">Platform</a></li>
+    <li><a href="#">Features</a></li>
+    <li><a href="#">Pricing</a></li>
+    <li><a href="#">About</a></li>
+  </ul>
+  <a href="/login" class="nav-cta">Request Access</a>
+  <button class="nav-hamburger" id="hamburger" aria-label="Toggle menu">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="ham-icon">
+      <line x1="3" y1="6" x2="21" y2="6"/>
+      <line x1="3" y1="12" x2="21" y2="12"/>
+      <line x1="3" y1="18" x2="21" y2="18"/>
+    </svg>
+  </button>
+  <div class="mobile-menu" id="mobile-menu">
+    <ul>
+      <li><a href="#">Platform</a></li>
+      <li><a href="#">Features</a></li>
+      <li><a href="#">Pricing</a></li>
+      <li><a href="#">About</a></li>
+      <li><a href="/login" class="nav-cta" style="width:fit-content">Request Access</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-inner">
+
+    <!-- Logo -->
+    <div class="logo-wrap reveal" style="transition-delay:0.05s">
+      <span class="ring" style="width:108px;height:108px;border:1.5px solid rgba(255,255,255,0.9);animation-delay:0s"></span>
+      <span class="ring" style="width:130px;height:130px;border:1px solid rgba(255,255,255,0.6);animation-delay:0.4s"></span>
+      <span class="ring" style="width:154px;height:154px;border:0.5px solid rgba(255,255,255,0.3);animation-delay:0.8s"></span>
+      <svg class="logo-svg" width="76" height="76" viewBox="0 0 120 120" fill="none">
+        <circle cx="60" cy="60" r="54" stroke="white" stroke-width="2" fill="none" opacity="0.9"/>
+        <path d="M38 42 C38 34 48 28 60 28 C72 28 82 34 82 42 C82 52 72 56 60 60 C48 64 38 68 38 78 C38 86 48 92 60 92 C72 92 82 86 82 78"
+              stroke="white" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+      </svg>
+    </div>
+
+    <div class="brand-label reveal" style="transition-delay:0.15s">SOLACE</div>
+
+    <p class="mission reveal" style="transition-delay:0.25s">
+      We built this platform with a single purpose — to eliminate operational chaos and restore balance to your daily business routine
+    </p>
+
+    <div class="divider reveal" style="transition-delay:0.35s"></div>
+
+    <div class="signature reveal" style="transition-delay:0.45s">S.P.D</div>
+
+    <div class="founder-label reveal" style="transition-delay:0.5s">Founder &amp; Chief Architect</div>
+
+    <div class="paragraphs reveal" style="transition-delay:0.58s">
+      <p>I Was Exhausted By Software That Demanded More Effort Than It Actually Saved. That Is Why We Engineered An Autonomous Architecture That Operates Silently In The Background.</p>
+      <p>Your Business Should Serve Your Life, Not Consume It. Let Our Algorithms Handle The Heavy Lifting, So You Can Focus On The Vision.</p>
+    </div>
+
+    <a href="/login" class="hero-cta reveal" style="transition-delay:0.65s">
+      Request Access
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </a>
+
+  </div>
+</section>
+
+<!-- Stats -->
+<div class="stats-bar">
+  <div class="stats-inner">
+    <div class="reveal" style="transition-delay:0.7s">
+      <div class="stat-value">250+</div>
+      <div class="stat-label">Brands Transformed</div>
+    </div>
+    <div class="reveal" style="transition-delay:0.75s">
+      <div class="stat-value">95%</div>
+      <div class="stat-label">Client Retention</div>
+    </div>
+    <div class="reveal" style="transition-delay:0.8s">
+      <div class="stat-value">10+</div>
+      <div class="stat-label">Years in the Game</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Mobile menu
+  const ham = document.getElementById('hamburger')
+  const menu = document.getElementById('mobile-menu')
+  ham.addEventListener('click', () => menu.classList.toggle('open'))
+
+  // Scroll reveal
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible') })
+  }, { threshold: 0.08 })
+
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el))
+</script>
+
+</body>
+</html>

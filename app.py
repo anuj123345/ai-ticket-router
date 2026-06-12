@@ -170,9 +170,18 @@ def admin_logout():
     return redirect(url_for("onboarding"))
 
 
-# ─── Ticket Routes ────────────────────────────────────────────────────────────
+# ─── Public landing ──────────────────────────────────────────────────────────
 
 @app.route("/")
+def landing():
+    if session.get("user_id"):
+        return redirect(url_for("welcome"))
+    return render_template("landing.html")
+
+
+# ─── Ticket Routes ────────────────────────────────────────────────────────────
+
+@app.route("/submit-ticket")
 @login_required
 def index():
     return render_template("index.html")
@@ -188,7 +197,7 @@ def submit_ticket():
 
     if not all([subject, description, submitter, email]):
         flash("All fields are required.", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("index"))  # /submit-ticket
 
     try:
         classification = classify_ticket(subject, description)
@@ -216,7 +225,7 @@ def submit_ticket():
 
     except Exception as e:
         flash(f"Error processing ticket: {str(e)}", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("index"))  # /submit-ticket
 
 
 @app.route("/review/<int:ticket_id>")
