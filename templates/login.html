@@ -159,13 +159,46 @@
       align-items: center;
       gap: 8px;
     }
+    .back-btn {
+      position: fixed;
+      top: 20px;
+      left: 24px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.82rem;
+      font-weight: 500;
+      color: var(--text-2);
+      text-decoration: none;
+      padding: 7px 14px;
+      border-radius: 99px;
+      background: #fff;
+      border: 1px solid var(--border);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      transition: color 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+      z-index: 100;
+    }
+    .back-btn:hover {
+      color: var(--text-1);
+      border-color: #c4c7d0;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+      transform: translateX(-2px);
+    }
     @media (max-width: 640px) {
       .auth-brand { display: none; }
       .auth-form-panel { padding: 40px 28px; }
+      .back-btn { top: 14px; left: 14px; }
     }
   </style>
 </head>
 <body>
+
+<a href="/" class="back-btn">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="15 18 9 12 15 6"/>
+  </svg>
+  Back to Home
+</a>
 
 <div class="auth-split">
   <!-- Left: brand panel -->
