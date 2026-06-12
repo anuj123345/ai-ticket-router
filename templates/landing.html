@@ -438,18 +438,304 @@
   </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════════════
+     FOOTER SECTION
+     ══════════════════════════════════════════════════════════ -->
+
+<!-- Spacer -->
+<section class="footer-spacer">
+  <p class="view-below-text">View Below</p>
+</section>
+
+<!-- Parallax footer -->
+<section class="parallax-section" id="parallaxSection">
+
+  <!-- Footer card -->
+  <div class="footer-card-wrap">
+    <div class="footer-card reveal">
+
+      <!-- Top: logo + links -->
+      <div class="footer-top">
+        <div class="footer-logo-area">
+          <div class="footer-logo-icon">
+            <svg viewBox="0 0 256 256" fill="white" width="100%" height="100%">
+              <path d="M 228 0 C 172.772 0 128 44.772 128 100 L 128 0 L 0 0 L 0 28 C 0 83.228 44.772 128 100 128 L 0 128 L 0 256 L 28 256 C 83.228 256 128 211.228 128 156 L 128 256 L 256 256 L 256 228 C 256 172.772 211.228 128 156 128 L 256 128 L 256 0 Z"/>
+            </svg>
+          </div>
+          <span class="footer-brand-name">HAUL!</span>
+        </div>
+
+        <div class="footer-links">
+          <div class="footer-col">
+            <p class="footer-col-title">Company</p>
+            <a href="#" class="footer-link">Founding</a>
+            <a href="#" class="footer-link">Platform</a>
+            <a href="#" class="footer-link">Testify</a>
+          </div>
+          <div class="footer-col">
+            <p class="footer-col-title">Mobile</p>
+            <a href="#" class="footer-link">Get Apple App</a>
+            <a href="#" class="footer-link">Get Google App</a>
+          </div>
+          <div class="footer-col">
+            <p class="footer-col-title">Contracts</p>
+            <a href="#" class="footer-link">Private Data</a>
+            <a href="#" class="footer-link">User Consent</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom bar -->
+      <div class="footer-bottom">
+        <p class="footer-copy">© 2026 HAUL! All Rights Reserved</p>
+        <div class="footer-socials">
+          <!-- Facebook -->
+          <a href="#" class="social-btn" aria-label="Facebook">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/>
+            </svg>
+          </a>
+          <!-- Twitter/X -->
+          <a href="#" class="social-btn" aria-label="Twitter">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"/>
+            </svg>
+          </a>
+          <!-- Instagram -->
+          <a href="#" class="social-btn" aria-label="Instagram">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/>
+              <circle cx="12" cy="12" r="4"/>
+              <circle cx="17.5" cy="6.5" r="0.5" fill="currentColor"/>
+            </svg>
+          </a>
+          <!-- LinkedIn -->
+          <a href="#" class="social-btn" aria-label="LinkedIn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+              <rect x="2" y="9" width="4" height="12"/>
+              <circle cx="4" cy="4" r="2"/>
+            </svg>
+          </a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Truck parallax layer -->
+  <div class="truck-layer" id="truckLayer">
+    <img
+      src="https://roof-wish-40038865.figma.site/_components/v2/f31fd17907ce60745d45e83a61d44fd3810d5f25/truck_1.8c4bff83.png"
+      alt="truck"
+      class="truck-img"
+    />
+  </div>
+
+</section>
+
+<style>
+  /* ── Footer spacer ── */
+  .footer-spacer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 50vh;
+    background: #FDFDFD;
+  }
+  @media (min-width: 768px) and (max-width: 1023px) {
+    .footer-spacer { height: 30vh; }
+  }
+  .view-below-text {
+    font-family: 'Inter', 'Manrope', sans-serif;
+    color: #d1d5db;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5em;
+    opacity: 0;
+    transition: opacity 0.9s ease;
+  }
+  .view-below-text.visible { opacity: 1; }
+
+  /* ── Parallax section ── */
+  .parallax-section {
+    position: relative;
+    height: 100vh;
+    overflow: hidden;
+    background-image: url('https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260430_115327_3f256636-9e63-4885-8d0b-09317dc2b0a5.png&w=1280&q=85');
+    background-size: cover;
+    background-position: center;
+  }
+
+  /* ── Footer card ── */
+  .footer-card-wrap {
+    position: absolute;
+    top: 0;
+    width: 100%;
+    padding: 3rem 1rem;
+    z-index: 30;
+  }
+  @media (min-width: 768px) { .footer-card-wrap { padding: 6rem 1.5rem; } }
+  @media (min-width: 1024px) { .footer-card-wrap { padding: 3rem 1.5rem; } }
+
+  .footer-card {
+    max-width: 80rem;
+    margin: 0 auto;
+    background: rgba(255,255,255,0.95);
+    backdrop-filter: blur(4px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.12);
+    border-radius: 1rem;
+    overflow: hidden;
+    font-family: 'Inter', 'Manrope', sans-serif;
+  }
+  @media (min-width: 768px) { .footer-card { border-radius: 1.5rem; } }
+
+  .footer-top {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    padding: 1.5rem;
+  }
+  @media (min-width: 768px) {
+    .footer-top {
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 2.5rem;
+    }
+  }
+
+  /* Logo */
+  .footer-logo-area {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .footer-logo-icon {
+    width: 40px; height: 40px;
+    background: #f97316;
+    border-radius: 0.5rem;
+    padding: 0.5rem;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.15);
+    flex-shrink: 0;
+  }
+  @media (min-width: 768px) {
+    .footer-logo-icon { width: 48px; height: 48px; }
+  }
+  .footer-brand-name {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #111827;
+    letter-spacing: -0.04em;
+  }
+  @media (min-width: 768px) { .footer-brand-name { font-size: 1.875rem; } }
+
+  /* Link columns */
+  .footer-links {
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+  }
+  @media (min-width: 768px) { .footer-links { gap: 3.5rem; } }
+  .footer-col { display: flex; flex-direction: column; gap: 0.75rem; }
+  .footer-col-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #111827;
+  }
+  .footer-link {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #6b7280;
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .footer-link:hover { color: #ea580c; }
+
+  /* Bottom bar */
+  .footer-bottom {
+    border-top: 1px solid #f3f4f6;
+    background: #fff;
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  @media (min-width: 768px) { .footer-bottom { padding: 1rem 2.5rem; } }
+  .footer-copy {
+    font-size: 0.875rem;
+    color: #6b7280;
+    font-weight: 500;
+  }
+  .footer-socials { display: flex; gap: 0.5rem; }
+  .social-btn {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    border: 1px solid #f3f4f6;
+    display: flex; align-items: center; justify-content: center;
+    color: #9ca3af;
+    text-decoration: none;
+    transition: all 0.3s;
+  }
+  .social-btn:hover {
+    background: #f97316;
+    color: #fff;
+    border-color: #f97316;
+  }
+
+  /* ── Truck ── */
+  .truck-layer {
+    position: absolute;
+    inset: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 20;
+    will-change: transform;
+  }
+  .truck-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: bottom;
+    transform-origin: bottom;
+    transform: scale(1.5);
+  }
+  @media (min-width: 640px)  { .truck-img { transform: scale(1.1);  } }
+  @media (min-width: 768px)  { .truck-img { transform: scale(2.0);  } }
+  @media (min-width: 1024px) { .truck-img { transform: scale(1.05); } }
+</style>
+
 <script>
   // Mobile menu
   const ham = document.getElementById('hamburger')
   const menu = document.getElementById('mobile-menu')
   ham.addEventListener('click', () => menu.classList.toggle('open'))
 
-  // Scroll reveal
+  // Scroll reveal (covers all .reveal elements including footer card)
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible') })
   }, { threshold: 0.08 })
+  document.querySelectorAll('.reveal, .view-below-text').forEach(el => observer.observe(el))
 
-  document.querySelectorAll('.reveal').forEach(el => observer.observe(el))
+  // Truck parallax
+  const parallaxSection = document.getElementById('parallaxSection')
+  const truckLayer      = document.getElementById('truckLayer')
+
+  function updateParallax() {
+    const rect     = parallaxSection.getBoundingClientRect()
+    const vh       = window.innerHeight
+    const progress = 1 - (rect.bottom / (vh + rect.height))   // 0 → 1
+    const y        = -50 + progress * 200                      // -50px → 150px
+    truckLayer.style.transform = `translateY(${y}px)`
+  }
+
+  window.addEventListener('scroll', updateParallax, { passive: true })
+  updateParallax()
 </script>
 
 </body>
