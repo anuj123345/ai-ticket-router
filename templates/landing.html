@@ -456,31 +456,44 @@
 
       <!-- Top: logo + links -->
       <div class="footer-top">
+
+        <!-- SOLACE logo -->
         <div class="footer-logo-area">
-          <div class="footer-logo-icon">
-            <svg viewBox="0 0 256 256" fill="white" width="100%" height="100%">
-              <path d="M 228 0 C 172.772 0 128 44.772 128 100 L 128 0 L 0 0 L 0 28 C 0 83.228 44.772 128 100 128 L 0 128 L 0 256 L 28 256 C 83.228 256 128 211.228 128 156 L 128 256 L 256 256 L 256 228 C 256 172.772 211.228 128 156 128 L 256 128 L 256 0 Z"/>
+          <div class="footer-solace-icon">
+            <svg viewBox="0 0 120 120" fill="none" width="100%" height="100%">
+              <circle cx="60" cy="60" r="54" stroke="#CC0000" stroke-width="2.5" fill="none" opacity="0.9"/>
+              <path d="M38 42 C38 34 48 28 60 28 C72 28 82 34 82 42 C82 52 72 56 60 60 C48 64 38 68 38 78 C38 86 48 92 60 92 C72 92 82 86 82 78"
+                    stroke="#CC0000" stroke-width="4" fill="none" stroke-linecap="round"/>
             </svg>
           </div>
-          <span class="footer-brand-name">HAUL!</span>
+          <div class="footer-solace-text">
+            <span class="footer-brand-name">Solace</span>
+            <span class="footer-brand-tagline">Eliminate Chaos. Restore Balance.</span>
+          </div>
         </div>
 
         <div class="footer-links">
+          <!-- Platform — links to real app routes -->
           <div class="footer-col">
-            <p class="footer-col-title">Company</p>
-            <a href="#" class="footer-link">Founding</a>
-            <a href="#" class="footer-link">Platform</a>
-            <a href="#" class="footer-link">Testify</a>
+            <p class="footer-col-title">Platform</p>
+            <a href="/submit-ticket" class="footer-link">Submit a Ticket</a>
+            <a href="/dashboard"     class="footer-link">Dashboard</a>
+            <a href="/ops"           class="footer-link">Ops Analytics</a>
+            <a href="/onboarding"    class="footer-link">Onboarding AI</a>
           </div>
+          <!-- Account -->
           <div class="footer-col">
-            <p class="footer-col-title">Mobile</p>
-            <a href="#" class="footer-link">Get Apple App</a>
-            <a href="#" class="footer-link">Get Google App</a>
+            <p class="footer-col-title">Account</p>
+            <a href="/login"    class="footer-link">Sign In</a>
+            <a href="/register" class="footer-link">Create Account</a>
+            <a href="/welcome"  class="footer-link">Dashboard Home</a>
           </div>
+          <!-- Legal -->
           <div class="footer-col">
-            <p class="footer-col-title">Contracts</p>
-            <a href="#" class="footer-link">Private Data</a>
-            <a href="#" class="footer-link">User Consent</a>
+            <p class="footer-col-title">Legal</p>
+            <a href="#" class="footer-link">Privacy Policy</a>
+            <a href="#" class="footer-link">Terms of Service</a>
+            <a href="#" class="footer-link">Cookie Policy</a>
           </div>
         </div>
       </div>
@@ -514,7 +527,7 @@
 
       <!-- Bottom bar -->
       <div class="footer-bottom">
-        <p class="footer-copy">© 2026 HAUL! All Rights Reserved</p>
+        <p class="footer-copy">© 2026 Solace. All Rights Reserved</p>
         <div class="footer-socials">
           <!-- Facebook -->
           <a href="#" class="social-btn" aria-label="Facebook">
@@ -633,30 +646,39 @@
     }
   }
 
-  /* Logo */
+  /* SOLACE Logo */
   .footer-logo-area {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-  }
-  .footer-logo-icon {
-    width: 40px; height: 40px;
-    background: #f97316;
-    border-radius: 0.5rem;
-    padding: 0.5rem;
-    box-shadow: inset 0 2px 4px rgba(0,0,0,0.15);
+    gap: 0.875rem;
     flex-shrink: 0;
   }
-  @media (min-width: 768px) {
-    .footer-logo-icon { width: 48px; height: 48px; }
+  .footer-solace-icon {
+    width: 44px; height: 44px;
+    flex-shrink: 0;
+  }
+  @media (min-width: 768px) { .footer-solace-icon { width: 52px; height: 52px; } }
+  .footer-solace-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
   }
   .footer-brand-name {
-    font-size: 1.5rem;
-    font-weight: 700;
+    font-family: 'Italiana', serif;
+    font-size: 1.6rem;
+    font-weight: 400;
     color: #111827;
-    letter-spacing: -0.04em;
+    letter-spacing: 0.05em;
+    line-height: 1;
   }
-  @media (min-width: 768px) { .footer-brand-name { font-size: 1.875rem; } }
+  @media (min-width: 768px) { .footer-brand-name { font-size: 1.9rem; } }
+  .footer-brand-tagline {
+    font-size: 0.6rem;
+    color: #9ca3af;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
 
   /* Link columns */
   .footer-links {
