@@ -416,16 +416,16 @@
 <div class="stats-bar">
   <div class="stats-inner">
     <div class="reveal" style="transition-delay:0.7s">
-      <div class="stat-value">250+</div>
-      <div class="stat-label">Brands Transformed</div>
+      <div class="stat-value" id="hero-stat-total">—</div>
+      <div class="stat-label">Tickets Processed</div>
     </div>
     <div class="reveal" style="transition-delay:0.75s">
-      <div class="stat-value">95%</div>
-      <div class="stat-label">Client Retention</div>
+      <div class="stat-value" id="hero-stat-resolved">—</div>
+      <div class="stat-label">Resolved</div>
     </div>
     <div class="reveal" style="transition-delay:0.8s">
-      <div class="stat-value">10+</div>
-      <div class="stat-label">Years in the Game</div>
+      <div class="stat-value" id="hero-stat-depts">—</div>
+      <div class="stat-label">Departments Active</div>
     </div>
   </div>
 </div>
@@ -852,6 +852,11 @@
     fetch('/api/public-stats')
       .then(r => r.json())
       .then(d => {
+        // Hero stats bar
+        animateCount(document.getElementById('hero-stat-total'),    d.total)
+        animateCount(document.getElementById('hero-stat-resolved'), d.resolved)
+        animateCount(document.getElementById('hero-stat-depts'),    d.depts)
+        // Footer stats strip
         animateCount(document.getElementById('stat-total'),    d.total)
         animateCount(document.getElementById('stat-resolved'), d.resolved)
         animateCount(document.getElementById('stat-pending'),  d.pending)
