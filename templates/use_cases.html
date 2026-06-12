@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Use Cases — Solace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Italiana&family=Manrope:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #F5F5F5;
+      --black:    #0d0d0d;
+      --red:      #CC0000;
+      --muted:    rgba(0,0,0,0.5);
+      --border:   rgba(0,0,0,0.08);
+    }
+
+    body {
+      font-family: 'Manrope', sans-serif;
+      background: var(--bg);
+      color: var(--black);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Navbar ─────────────────────────────────────── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.1rem 3rem;
+      background: rgba(245,245,245,0.85);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-brand {
+      font-family: 'Italiana', serif;
+      font-size: 1.4rem;
+      letter-spacing: 0.12em;
+      color: var(--black);
+      text-decoration: none;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 2.5rem;
+      list-style: none;
+    }
+    .nav-links a {
+      font-size: 0.82rem;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover, .nav-links a.active { color: var(--black); }
+    .nav-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      background: var(--black);
+      color: #fff;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 0.6rem 1.3rem;
+      border-radius: 99px;
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    .nav-cta:hover { opacity: 0.85; }
+    @media (max-width: 768px) {
+      nav { padding: 1rem 1.25rem; }
+      .nav-links { display: none; }
+    }
+
+    /* ── Intro Section ───────────────────────────────── */
+    .intro-section {
+      padding: 7rem 3rem 5rem;
+      max-width: 90rem;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .intro-section { grid-template-columns: 1fr; padding: 4rem 1.5rem 3rem; }
+    }
+
+    .intro-left { padding-right: 3rem; padding-top: 0.5rem; }
+    @media (max-width: 900px) { .intro-left { padding-right: 0; } }
+
+    .eyebrow {
+      font-size: 0.75rem;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1rem;
+      font-weight: 500;
+    }
+    .intro-heading {
+      font-family: 'Italiana', serif;
+      font-size: clamp(3.5rem, 7vw, 5.5rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1;
+      margin-bottom: 1.75rem;
+      color: var(--black);
+    }
+    .intro-desc {
+      font-size: 0.95rem;
+      line-height: 1.85;
+      color: var(--muted);
+      max-width: 360px;
+    }
+
+    /* ── Big video card ──────────────────────────────── */
+    .hero-card {
+      position: relative;
+      border-radius: 24px;
+      overflow: hidden;
+      min-height: 720px;
+      background: var(--black);
+    }
+    .hero-card video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .hero-card-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.45) 100%);
+      z-index: 1;
+    }
+    .hero-card-content {
+      position: relative;
+      z-index: 2;
+      padding: 2.75rem;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      min-height: 720px;
+    }
+    .hero-card-tag {
+      display: inline-block;
+      background: rgba(255,255,255,0.15);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #fff;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      padding: 5px 14px;
+      border-radius: 99px;
+      margin-bottom: 1.5rem;
+      width: fit-content;
+    }
+    .hero-card-title {
+      font-family: 'Italiana', serif;
+      font-size: clamp(2.5rem, 5vw, 4rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+      color: #fff;
+      margin-bottom: 1rem;
+    }
+    .hero-card-desc {
+      font-size: 0.9rem;
+      line-height: 1.8;
+      color: rgba(255,255,255,0.72);
+      max-width: 420px;
+      margin-bottom: 2rem;
+    }
+    .know-more-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #fff;
+      font-size: 0.9rem;
+      font-weight: 500;
+      font-family: 'Manrope', sans-serif;
+      text-decoration: none;
+    }
+    .know-more-btn .icon-circle {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.2);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+      flex-shrink: 0;
+    }
+    .know-more-btn:hover .icon-circle { background: rgba(255,255,255,0.35); }
+    .know-more-btn .icon-circle svg {
+      width: 15px;
+      height: 15px;
+      stroke: #fff;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* ── Use Case Explorer ───────────────────────────── */
+    .explorer-section {
+      padding: 2rem 3rem 6rem;
+      max-width: 90rem;
+      margin: 0 auto;
+    }
+    @media (max-width: 768px) { .explorer-section { padding: 1rem 1.25rem 4rem; } }
+
+    .explorer-label {
+      font-size: 0.72rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 500;
+      margin-bottom: 2.5rem;
+    }
+
+    /* Tab strip */
+    .tab-strip {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 2.5rem;
+      overflow-x: auto;
+      scrollbar-width: none;
+      flex-wrap: nowrap;
+      padding-bottom: 4px;
+    }
+    .tab-strip::-webkit-scrollbar { display: none; }
+    .tab-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.55rem 1.1rem;
+      border-radius: 99px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 500;
+      font-family: 'Manrope', sans-serif;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .tab-btn:hover { color: var(--black); border-color: rgba(0,0,0,0.2); }
+    .tab-btn.active {
+      background: var(--black);
+      color: #fff;
+      border-color: var(--black);
+    }
+    .tab-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.5;
+      flex-shrink: 0;
+    }
+    .tab-btn.active .tab-dot { opacity: 1; background: #fff; }
+
+    /* Case panels */
+    .panels-wrap {
+      position: relative;
+    }
+    .case-panel {
+      display: none;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+      align-items: stretch;
+      animation: panelIn 0.4s cubic-bezier(0.22,1,0.36,1);
+    }
+    .case-panel.active { display: grid; }
+    @keyframes panelIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @media (max-width: 900px) {
+      .case-panel { grid-template-columns: 1fr; }
+    }
+
+    /* Card in panel */
+    .panel-card {
+      position: relative;
+      border-radius: 20px;
+      overflow: hidden;
+      min-height: 500px;
+    }
+    .panel-card video,
+    .panel-card .panel-card-bg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .panel-card .panel-card-bg {
+      background: var(--black);
+    }
+    .panel-card-gradient {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      background: linear-gradient(135deg, transparent 30%, rgba(0,0,0,0.5) 100%);
+    }
+    .panel-card-content {
+      position: relative;
+      z-index: 2;
+      padding: 2.5rem;
+      height: 100%;
+      min-height: 500px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+    }
+    .panel-card-number {
+      font-family: 'Italiana', serif;
+      font-size: 5rem;
+      line-height: 1;
+      color: rgba(255,255,255,0.12);
+      margin-bottom: auto;
+      padding-top: 1rem;
+    }
+    .panel-card-title {
+      font-family: 'Italiana', serif;
+      font-size: clamp(2rem, 3.5vw, 2.8rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: #fff;
+      margin-bottom: 0.75rem;
+    }
+    .panel-card-desc {
+      font-size: 0.88rem;
+      line-height: 1.75;
+      color: rgba(255,255,255,0.65);
+      margin-bottom: 1.5rem;
+    }
+
+    /* Detail column */
+    .panel-detail {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+    .detail-feature {
+      background: #fff;
+      border-radius: 16px;
+      padding: 1.5rem 1.75rem;
+      border: 1px solid var(--border);
+      transition: box-shadow 0.2s, transform 0.2s;
+    }
+    .detail-feature:hover {
+      box-shadow: 0 8px 32px rgba(0,0,0,0.07);
+      transform: translateY(-2px);
+    }
+    .detail-feature-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+      border: 1px solid var(--border);
+    }
+    .detail-feature-icon svg {
+      width: 17px;
+      height: 17px;
+      stroke: var(--black);
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .detail-feature-title {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--black);
+      margin-bottom: 0.35rem;
+      letter-spacing: -0.01em;
+    }
+    .detail-feature-desc {
+      font-size: 0.82rem;
+      line-height: 1.7;
+      color: var(--muted);
+    }
+
+    /* ── CTA strip ───────────────────────────────────── */
+    .cta-section {
+      background: var(--black);
+      padding: 5rem 3rem;
+      text-align: center;
+    }
+    .cta-eyebrow {
+      font-size: 0.72rem;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.35);
+      margin-bottom: 1.5rem;
+    }
+    .cta-heading {
+      font-family: 'Italiana', serif;
+      font-size: clamp(2.5rem, 5vw, 4rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      color: #fff;
+      margin-bottom: 2.5rem;
+    }
+    .cta-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      background: #fff;
+      color: var(--black);
+      font-weight: 600;
+      font-size: 0.88rem;
+      padding: 0.85rem 2rem;
+      border-radius: 99px;
+      text-decoration: none;
+      transition: opacity 0.2s, transform 0.2s;
+    }
+    .cta-btn:hover { opacity: 0.9; transform: scale(1.03); }
+    .cta-btn svg {
+      width: 14px; height: 14px;
+      stroke: currentColor; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    /* ── Footer strip ────────────────────────────────── */
+    .page-footer {
+      background: var(--black);
+      border-top: 1px solid rgba(255,255,255,0.06);
+      text-align: center;
+      padding: 1.5rem;
+      font-size: 0.78rem;
+      color: rgba(255,255,255,0.25);
+    }
+    .page-footer a { color: rgba(255,255,255,0.4); text-decoration: none; }
+    .page-footer a:hover { color: #fff; }
+  </style>
+</head>
+<body>
+
+<!-- ── Navbar ────────────────────────────────────────── -->
+<nav>
+  <a href="/" class="nav-brand">Solace</a>
+  <ul class="nav-links">
+    <li><a href="/use-cases" class="active">Use Cases</a></li>
+    <li><a href="/onboarding">Onboarding AI</a></li>
+    <li><a href="/ops">Ops Analytics</a></li>
+  </ul>
+  <a href="/login" class="nav-cta">
+    Get access
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+  </a>
+</nav>
+
+
+<!-- ── Intro section ─────────────────────────────────── -->
+<section class="intro-section">
+
+  <!-- Left col -->
+  <div class="intro-left">
+    <p class="eyebrow">Solace in Practice</p>
+    <h2 class="intro-heading">Use cases</h2>
+    <p class="intro-desc">
+      Solace routes, classifies and resolves support tickets across every department — from IT incidents to HR queries — so your teams spend time solving problems, not sorting inboxes.
+    </p>
+  </div>
+
+  <!-- Right col: hero video card -->
+  <div class="hero-card">
+    <video autoplay muted loop playsinline>
+      <source src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260423_183428_ab5e672a-f608-4dcb-b319-f3e040f02e2d.mp4" type="video/mp4">
+    </video>
+    <div class="hero-card-overlay"></div>
+    <div class="hero-card-content">
+      <span class="hero-card-tag">Featured</span>
+      <h3 class="hero-card-title">IT Support<br>Automation</h3>
+      <p class="hero-card-desc">
+        Every incident, bug report, and access request — classified by severity, routed to the right engineer, and answered with a drafted response before a human opens the ticket.
+      </p>
+      <a href="/submit-ticket" class="know-more-btn">
+        <span class="icon-circle">
+          <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </span>
+        Try it now
+      </a>
+    </div>
+  </div>
+
+</section>
+
+
+<!-- ── Explorer ──────────────────────────────────────── -->
+<section class="explorer-section">
+
+  <p class="explorer-label">All use cases</p>
+
+  <!-- Tab strip -->
+  <div class="tab-strip" role="tablist">
+    <button class="tab-btn active" data-tab="it" role="tab">
+      <span class="tab-dot"></span>IT Support
+    </button>
+    <button class="tab-btn" data-tab="hr" role="tab">
+      <span class="tab-dot"></span>HR &amp; Onboarding
+    </button>
+    <button class="tab-btn" data-tab="cs" role="tab">
+      <span class="tab-dot"></span>Customer Success
+    </button>
+    <button class="tab-btn" data-tab="fin" role="tab">
+      <span class="tab-dot"></span>Finance &amp; Legal
+    </button>
+    <button class="tab-btn" data-tab="ops" role="tab">
+      <span class="tab-dot"></span>Operations
+    </button>
+  </div>
+
+  <div class="panels-wrap">
+
+    <!-- IT Support -->
+    <div class="case-panel active" id="panel-it">
+      <div class="panel-card">
+        <video autoplay muted loop playsinline>
+          <source src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260423_183428_ab5e672a-f608-4dcb-b319-f3e040f02e2d.mp4" type="video/mp4">
+        </video>
+        <div class="panel-card-gradient"></div>
+        <div class="panel-card-content">
+          <div class="panel-card-number">01</div>
+          <h3 class="panel-card-title">IT Support</h3>
+          <p class="panel-card-desc">Incidents classified and routed in seconds, not hours.</p>
+          <a href="/submit-ticket" class="know-more-btn">
+            <span class="icon-circle"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
+            Submit a ticket
+          </a>
+        </div>
+      </div>
+      <div class="panel-detail">
+        <div class="detail-feature">
+          <div class="detail-feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          </div>
+          <div class="detail-feature-title">Severity Classification</div>
+          <div class="detail-feature-desc">AI reads the ticket subject and body to assign P1–P4 severity instantly, ensuring critical incidents never sit in a queue.</div>
+        </div>
+        <div class="detail-feature">
+          <div class="detail-feature-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+          </div>
+          <div class="detail-feature-title">SLA-Aware Routing</div>
+          <div class="detail-feature-desc">Tickets are routed to the correct engineering team with SLA deadlines pre-calculated, so nothing breaches without warning.</div>
+        </div>
+        <div class="detail-feature">
+          <div class="detail-feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <div class="detail-feature-title">Auto-Draft Responses</div>
+          <div class="detail-feature-desc">A complete response draft — grounded in your knowledge base — is generated before your engineer opens the ticket. Approve or edit in one click.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HR & Onboarding -->
+    <div class="case-panel" id="panel-hr">
+      <div class="panel-card" style="background: #0f172a;">
+        <div class="panel-card-bg" style="background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);"></div>
+        <div class="panel-card-gradient"></div>
+        <div class="panel-card-content">
+          <div class="panel-card-number">02</div>
+          <h3 class="panel-card-title">HR &amp; Onboarding</h3>
+          <p class="panel-card-desc">New hire questions and policy queries answered 24/7 from your knowledge base.</p>
+          <a href="/onboarding" class="know-more-btn">
+            <span class="icon-circle"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
+            Try Onboarding AI
+          </a>
+        </div>
+      </div>
+      <div class="panel-detail">
+        <div class="detail-feature">
+          <div class="detail-feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <div class="detail-feature-title">Onboarding AI Chat</div>
+          <div class="detail-feature-desc">New employees get instant answers from a conversational AI trained on your HR docs, policies, and runbooks — no ticket queue required.</div>
+        </div>
+        <div class="detail-feature">
+          <div class="detail-feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+          <div class="detail-feature-title">Policy Q&amp;A</div>
+          <div class="detail-feature-desc">Upload your employee handbook, leave policy, and benefits docs. Solace surfaces exact answers with source citations — never a hallucination.</div>
+        </div>
+        <div class="detail-feature">
+          <div class="detail-feature-icon">
+            <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+          <div class="detail-feature-title">Feedback Loop</div>
+          <div class="detail-feature-desc">Every answer is rated by employees. Solace learns which responses need improvement and flags outdated docs for your HR team to update.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Customer Success -->
+    <div class="case-panel" id="panel-cs">
+      <div class="panel-card">
+        <video autoplay muted loop playsinline>
+          <source src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260419_065931_e3ca7b53-d32e-4ad5-81de-dc9d6fcfda6d.mp4" type="video/mp4">
+        </video>
+        <div class="panel-card-gradient"></div>
+        <div class="panel-card-content">
+          <div class="panel-card-number">03</div>
+          <h3 class="panel-card-title">Customer Success</h3>
+          <p class="panel-card-desc">Detect churn signals in tickets before they become lost accounts.</p>
+          <a href="/dashboard" class="know-more-btn">
+            <span class="icon-circle"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
+            View dashboard
+          </a>
+        </div>
+      </div>
+      <div class="panel-detail">
+        <div class="detail-feature">
+          <div class="detail-feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </div>
+          <div class="detail-feature-title">Priority Routing</div>
+          <div class="detail-feature-desc">Tickets from high-value accounts are flagged automatically and routed directly to your success team — before the customer has to follow up.</div>
+        </div>
+        <div class="detail-feature">
+          <div class="detail-feature-icon">
+            <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          </div>
+          <div class="detail-feature-title">Sentiment Analysis</div>
+          <div class="detail-feature-desc">AI reads tone and urgency across every ticket. Frustrated customers surface to the top of the queue — not buried under low-priority noise.</div>
+        </div>
+        <div class="detail-feature">
+          <div class="detail-feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          </div>
+          <div class="detail-feature-title">Response Drafting</div>
+          <div class="detail-feature-desc">Personalised draft responses go out in seconds, giving your CSMs more time to build relationships instead of typing the same replies.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Finance & Legal -->
+    <div class="case-panel" id="panel-fin">
+      <div class="panel-card" style="background: #1a1a1a;">
+        <div class="panel-card-bg" style="background: linear-gradient(135deg, #1a1a1a 0%, #2d1f3f 100%);"></div>
+        <div class="panel-card-gradient"></div>
+        <div class="panel-card-content">
+          <div class="panel-card-number">04</div>
+          <h3 class="panel-card-title">Finance &amp; Legal</h3>
+          <p class="panel-card-desc">Sensitive tickets handled with precision routing and full audit trails.</p>
+          <a href="/submit-ticket" class="know-more-btn">
+            <span class="icon-circle"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
+            Submit a ticket
+          </a>
+        </div>
+      </div>
+      <div class="panel-detail">
+        <div class="detail-feature">
+          <div class="detail-feature-icon">
+            <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
+          <div class="detail-feature-title">Secure Classification</div>
+          <div class="detail-feature-desc">Billing disputes, legal queries, and compliance requests are classified with precision and routed only to authorised personnel — never to a general queue.</div>
+        </div>
+        <div class="detail-feature">
+          <div class="detail-feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          </div>
+          <div class="detail-feature-title">Audit Trail</div>
+          <div class="detail-feature-desc">Every classification decision, routing action, and response draft is logged with timestamps. Compliance reviews become a one-click export.</div>
+        </div>
+        <div class="detail-feature">
+          <div class="detail-feature-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+          </div>
+          <div class="detail-feature-title">SLA Enforcement</div>
+          <div class="detail-feature-desc">Legal and financial tickets carry hard SLA deadlines. Solace escalates automatically if a deadline is at risk — before it becomes a breach.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Operations -->
+    <div class="case-panel" id="panel-ops">
+      <div class="panel-card">
+        <video autoplay muted loop playsinline>
+          <source src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260405_171521_25968ba2-b594-4b32-aab7-f6b69398a6fa.mp4" type="video/mp4">
+        </video>
+        <div class="panel-card-gradient"></div>
+        <div class="panel-card-content">
+          <div class="panel-card-number">05</div>
+          <h3 class="panel-card-title">Operations</h3>
+          <p class="panel-card-desc">Query your entire ticket history in plain English. No SQL, no dashboards.</p>
+          <a href="/ops" class="know-more-btn">
+            <span class="icon-circle"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
+            Open Ops Analytics
+          </a>
+        </div>
+      </div>
+      <div class="panel-detail">
+        <div class="detail-feature">
+          <div class="detail-feature-icon">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </div>
+          <div class="detail-feature-title">Natural Language Querying</div>
+          <div class="detail-feature-desc">Ask "which department has the most unresolved tickets this month?" and get an instant answer. No BI tool, no analyst required.</div>
+        </div>
+        <div class="detail-feature">
+          <div class="detail-feature-icon">
+            <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          </div>
+          <div class="detail-feature-title">Live Ops Dashboard</div>
+          <div class="detail-feature-desc">Real-time view of tickets by department, priority, and status. Spot bottlenecks as they form — not in the post-mortem two weeks later.</div>
+        </div>
+        <div class="detail-feature">
+          <div class="detail-feature-icon">
+            <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          </div>
+          <div class="detail-feature-title">Vendor &amp; Facility Requests</div>
+          <div class="detail-feature-desc">Procurement requests, office management, and vendor tickets routed to ops automatically — eliminating the inbox clutter that derails operational teams.</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /panels-wrap -->
+</section>
+
+
+<!-- ── CTA ───────────────────────────────────────────── -->
+<section class="cta-section">
+  <p class="cta-eyebrow">Ready to eliminate the chaos?</p>
+  <h2 class="cta-heading">Start routing smarter today</h2>
+  <a href="/login" class="cta-btn">
+    Request access
+    <svg viewBox="0 0 16 16"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+  </a>
+</section>
+
+<div class="page-footer">
+  © 2026 Solace. All Rights Reserved &nbsp;·&nbsp;
+  <a href="/privacy">Privacy</a> &nbsp;·&nbsp;
+  <a href="/terms">Terms</a> &nbsp;·&nbsp;
+  <a href="/cookies">Cookies</a>
+</div>
+
+
+<script>
+  // Tab switching
+  const tabs   = document.querySelectorAll('.tab-btn')
+  const panels = document.querySelectorAll('.case-panel')
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.tab
+
+      tabs.forEach(t => t.classList.remove('active'))
+      panels.forEach(p => p.classList.remove('active'))
+
+      tab.classList.add('active')
+      document.getElementById('panel-' + target).classList.add('active')
+    })
+  })
+</script>
+
+</body>
+</html>

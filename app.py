@@ -179,6 +179,11 @@ def landing():
     return render_template("landing.html")
 
 
+@app.route("/use-cases")
+def use_cases():
+    return render_template("use_cases.html")
+
+
 @app.route("/privacy")
 def privacy():
     return render_template("privacy.html")
