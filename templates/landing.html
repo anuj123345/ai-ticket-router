@@ -558,14 +558,6 @@
     </div>
   </div>
 
-  <!-- Truck parallax layer -->
-  <div class="truck-layer" id="truckLayer">
-    <img
-      src="https://roof-wish-40038865.figma.site/_components/v2/f31fd17907ce60745d45e83a61d44fd3810d5f25/truck_1.8c4bff83.png"
-      alt="truck"
-      class="truck-img"
-    />
-  </div>
 
 </section>
 
@@ -811,26 +803,6 @@
     50%       { opacity: 0.4; transform: scale(0.7); }
   }
 
-  /* ── Truck ── */
-  .truck-layer {
-    position: absolute;
-    inset: 0;
-    bottom: 0;
-    pointer-events: none;
-    z-index: 20;
-    will-change: transform;
-  }
-  .truck-img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    object-position: bottom;
-    transform-origin: bottom;
-    transform: scale(1.5);
-  }
-  @media (min-width: 640px)  { .truck-img { transform: scale(1.1);  } }
-  @media (min-width: 768px)  { .truck-img { transform: scale(2.0);  } }
-  @media (min-width: 1024px) { .truck-img { transform: scale(1.05); } }
 </style>
 
 <script>
@@ -873,20 +845,6 @@
   loadStats()
   setInterval(loadStats, 30000)   // refresh every 30 seconds
 
-  // Truck parallax
-  const parallaxSection = document.getElementById('parallaxSection')
-  const truckLayer      = document.getElementById('truckLayer')
-
-  function updateParallax() {
-    const rect     = parallaxSection.getBoundingClientRect()
-    const vh       = window.innerHeight
-    const progress = 1 - (rect.bottom / (vh + rect.height))   // 0 → 1
-    const y        = -50 + progress * 200                      // -50px → 150px
-    truckLayer.style.transform = `translateY(${y}px)`
-  }
-
-  window.addEventListener('scroll', updateParallax, { passive: true })
-  updateParallax()
 </script>
 
 </body>
