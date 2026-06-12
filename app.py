@@ -179,6 +179,19 @@ def landing():
     return render_template("landing.html")
 
 
+@app.route("/privacy")
+def privacy():
+    return render_template("privacy.html")
+
+@app.route("/terms")
+def terms():
+    return render_template("terms.html")
+
+@app.route("/cookies")
+def cookies_policy():
+    return render_template("cookies.html")
+
+
 @app.route("/api/public-stats")
 def public_stats():
     """Public stats endpoint — no login required. Safe to expose on landing page."""
