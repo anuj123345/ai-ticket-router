@@ -4,12 +4,14 @@ AI Ticket Router — Flask Application
 
 import json
 import os
+from datetime import datetime
 from functools import wraps
 from flask import (Flask, render_template, request, redirect,
                    url_for, flash, jsonify, session)
 from dotenv import load_dotenv
 
 from models.db import init_db, create_ticket, get_ticket, get_all_tickets, update_ticket_status, get_stats
+from models.auth import create_user, get_user_by_email_with_hash, get_user_by_id, verify_password
 from services.classifier import classify_ticket, get_assignee
 from services.response_gen import generate_draft, format_full_response
 from services.nl_query import nl_query as run_nl_query
@@ -30,18 +32,127 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 init_db()
 
 
-# ── Admin auth decorator ──────────────────────────────────────────────────────
+# ── Auth decorators ───────────────────────────────────────────────────────────
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("user_id"):
+            return redirect(url_for("login", next=request.path))
+        return f(*args, **kwargs)
+    return decorated
+
 
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        if not session.get("user_id"):
+            return redirect(url_for("login", next=request.path))
         if not session.get("admin_authenticated"):
             return redirect(url_for("admin_login", next=request.path))
         return f(*args, **kwargs)
     return decorated
 
 
+# ── User auth routes ──────────────────────────────────────────────────────────
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if session.get("user_id"):
+        return redirect(url_for("welcome"))
+
+    error = None
+    email = ""
+    if request.method == "POST":
+        email    = request.form.get("email", "").strip()
+        password = request.form.get("password", "")
+
+        user = get_user_by_email_with_hash(email)
+        if user and verify_password(user, password):
+            session["user_id"]   = user["id"]
+            session["user_name"] = user["name"]
+            session["user_email"]= user["email"]
+            session["user_role"] = user.get("role", "user")
+            next_url = request.args.get("next", url_for("welcome"))
+            return redirect(next_url)
+        else:
+            error = "Invalid email or password."
+
+    return render_template("login.html", error=error, email=email)
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if session.get("user_id"):
+        return redirect(url_for("welcome"))
+
+    error = None
+    name = email = ""
+    if request.method == "POST":
+        name     = request.form.get("name", "").strip()
+        email    = request.form.get("email", "").strip()
+        password = request.form.get("password", "")
+
+        if not all([name, email, password]):
+            error = "All fields are required."
+        elif len(password) < 8:
+            error = "Password must be at least 8 characters."
+        else:
+            user = create_user(name, email, password)
+            if user is None:
+                error = "An account with this email already exists."
+            else:
+                session["user_id"]    = user["id"]
+                session["user_name"]  = user["name"]
+                session["user_email"] = user["email"]
+                session["user_role"]  = user.get("role", "user")
+                return redirect(url_for("welcome"))
+
+    return render_template("register.html", error=error, name=name, email=email)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+# ── Welcome dashboard ─────────────────────────────────────────────────────────
+
+@app.route("/welcome")
+@login_required
+def welcome():
+    stats     = get_stats()
+    fb_stats  = get_feedback_stats()
+    doc_count = len(get_all_documents())
+
+    hour = datetime.now().hour
+    if hour < 12:
+        time_of_day = "morning"
+    elif hour < 17:
+        time_of_day = "afternoon"
+    else:
+        time_of_day = "evening"
+
+    user = {
+        "name":  session.get("user_name", "there"),
+        "email": session.get("user_email", ""),
+        "role":  session.get("user_role", "user"),
+    }
+
+    return render_template("welcome.html",
+        user=user,
+        stats=stats,
+        doc_count=doc_count,
+        qa_count=fb_stats.get("qa_count", 0),
+        time_of_day=time_of_day,
+    )
+
+
+# ── Admin login (for doc management) ─────────────────────────────────────────
+
 @app.route("/admin/login", methods=["GET", "POST"])
+@login_required
 def admin_login():
     if request.method == "POST":
         password = request.form.get("password", "")
@@ -62,11 +173,13 @@ def admin_logout():
 # ─── Ticket Routes ────────────────────────────────────────────────────────────
 
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html")
 
 
 @app.route("/submit", methods=["POST"])
+@login_required
 def submit_ticket():
     subject     = request.form.get("subject",     "").strip()
     description = request.form.get("description", "").strip()
@@ -107,6 +220,7 @@ def submit_ticket():
 
 
 @app.route("/review/<int:ticket_id>")
+@login_required
 def review_ticket(ticket_id: int):
     ticket = get_ticket(ticket_id)
     if not ticket:
@@ -122,6 +236,7 @@ def review_ticket(ticket_id: int):
 
 
 @app.route("/approve/<int:ticket_id>", methods=["POST"])
+@login_required
 def approve_ticket(ticket_id: int):
     ticket = get_ticket(ticket_id)
     if not ticket:
@@ -144,6 +259,7 @@ def approve_ticket(ticket_id: int):
 
 
 @app.route("/reject/<int:ticket_id>", methods=["POST"])
+@login_required
 def reject_ticket(ticket_id: int):
     update_ticket_status(ticket_id, status="escalated")
     flash(f"Ticket #{ticket_id} escalated for manual review.", "warning")
@@ -151,6 +267,7 @@ def reject_ticket(ticket_id: int):
 
 
 @app.route("/dashboard")
+@login_required
 def dashboard():
     tickets = get_all_tickets(limit=100)
     stats   = get_stats()
@@ -158,11 +275,13 @@ def dashboard():
 
 
 @app.route("/api/stats")
+@login_required
 def api_stats():
     return jsonify(get_stats())
 
 
 @app.route("/ticket/<int:ticket_id>")
+@login_required
 def ticket_detail(ticket_id: int):
     ticket = get_ticket(ticket_id)
     if not ticket:
@@ -180,11 +299,13 @@ def ticket_detail(ticket_id: int):
 # ─── Ops Dashboard ────────────────────────────────────────────────────────────
 
 @app.route("/ops")
+@login_required
 def ops_dashboard():
     return render_template("ops_dashboard.html")
 
 
 @app.route("/ops/query", methods=["POST"])
+@login_required
 def ops_query():
     data     = request.get_json(silent=True) or {}
     question = data.get("question", "").strip()
@@ -196,15 +317,17 @@ def ops_query():
 # ─── Onboarding ───────────────────────────────────────────────────────────────
 
 @app.route("/onboarding")
+@login_required
 def onboarding():
     return render_template("onboarding.html")
 
 
 @app.route("/onboarding/chat", methods=["POST"])
+@login_required
 def onboarding_chat():
     data     = request.get_json(silent=True) or {}
     question = data.get("question", "").strip()
-    history  = data.get("history", [])          # list of {question, answer}
+    history  = data.get("history", [])
     if not question:
         return jsonify({"error": "Question is required."}), 400
     try:
@@ -220,6 +343,7 @@ def onboarding_chat():
 
 
 @app.route("/onboarding/feedback", methods=["POST"])
+@login_required
 def onboarding_feedback():
     data    = request.get_json(silent=True) or {}
     conv_id = data.get("conversation_id")
@@ -233,7 +357,6 @@ def onboarding_feedback():
     if rating is not None:
         payload["rating"] = rating
         if rating == 1:
-            # Thumbs up → save to verified Q&A knowledge base
             try:
                 save_verified_qa(conv_id)
             except Exception:

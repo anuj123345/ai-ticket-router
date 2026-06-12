@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Welcome — AI Enterprise Platform{% endblock %}
+
+{% block content %}
+<div class="welcome-wrap">
+
+  <!-- Hero -->
+  <div class="welcome-hero">
+    <div class="welcome-hero-inner">
+      <div class="welcome-greeting">Good {{ time_of_day }}, {{ user.name.split()[0] }} 👋</div>
+      <h1 class="welcome-title">Your AI Enterprise Platform</h1>
+      <p class="welcome-sub">Three intelligent modules to handle support, analytics, and onboarding — all powered by NVIDIA NIM.</p>
+    </div>
+  </div>
+
+  <!-- Module cards -->
+  <div class="welcome-modules">
+
+    <a href="/" class="welcome-card">
+      <div class="wc-icon wc-icon-ticket"><i class="bi bi-ticket-perforated-fill"></i></div>
+      <div class="wc-body">
+        <div class="wc-title">AI Ticket Router</div>
+        <div class="wc-desc">Submit support tickets and let AI classify, prioritize, and draft responses automatically. Human-in-the-loop review before anything is sent.</div>
+        <div class="wc-stats">
+          <span><i class="bi bi-stack me-1"></i>{{ stats.total }} tickets</span>
+          <span><i class="bi bi-hourglass-split me-1"></i>{{ stats.by_status.get('pending_review', 0) }} pending</span>
+          <span><i class="bi bi-check-circle me-1"></i>{{ stats.by_status.get('resolved', 0) }} resolved</span>
+        </div>
+      </div>
+      <div class="wc-arrow"><i class="bi bi-arrow-right"></i></div>
+    </a>
+
+    <a href="/ops" class="welcome-card">
+      <div class="wc-icon wc-icon-ops"><i class="bi bi-bar-chart-line-fill"></i></div>
+      <div class="wc-body">
+        <div class="wc-title">Ops Dashboard</div>
+        <div class="wc-desc">Ask questions about your ticket data in plain English. AI writes the SQL, runs it against your database, charts the result, and explains it.</div>
+        <div class="wc-stats">
+          <span><i class="bi bi-translate me-1"></i>Natural language → SQL</span>
+          <span><i class="bi bi-bar-chart me-1"></i>Auto-charting</span>
+          <span><i class="bi bi-stars me-1"></i>AI summaries</span>
+        </div>
+      </div>
+      <div class="wc-arrow"><i class="bi bi-arrow-right"></i></div>
+    </a>
+
+    <a href="/onboarding" class="welcome-card">
+      <div class="wc-icon wc-icon-ob"><i class="bi bi-mortarboard-fill"></i></div>
+      <div class="wc-body">
+        <div class="wc-title">Onboarding Assistant</div>
+        <div class="wc-desc">Ask anything about company policies, benefits, and procedures. Answers are grounded in your uploaded documents and get smarter with every thumbs-up.</div>
+        <div class="wc-stats">
+          <span><i class="bi bi-file-earmark-text me-1"></i>{{ doc_count }} docs</span>
+          <span><i class="bi bi-hand-thumbs-up me-1"></i>{{ qa_count }} verified Q&As</span>
+          <span><i class="bi bi-arrow-repeat me-1"></i>Self-improving</span>
+        </div>
+      </div>
+      <div class="wc-arrow"><i class="bi bi-arrow-right"></i></div>
+    </a>
+
+  </div>
+
+  <!-- Quick stats strip -->
+  <div class="welcome-stat-strip">
+    <div class="ws-stat">
+      <div class="ws-val">{{ stats.total }}</div>
+      <div class="ws-label">Total tickets</div>
+    </div>
+    <div class="ws-divider"></div>
+    <div class="ws-stat">
+      <div class="ws-val">{{ stats.by_status.get('resolved', 0) }}</div>
+      <div class="ws-label">Resolved</div>
+    </div>
+    <div class="ws-divider"></div>
+    <div class="ws-stat">
+      <div class="ws-val">{{ stats.by_status.get('pending_review', 0) }}</div>
+      <div class="ws-label">Awaiting review</div>
+    </div>
+    <div class="ws-divider"></div>
+    <div class="ws-stat">
+      <div class="ws-val">{{ doc_count }}</div>
+      <div class="ws-label">Knowledge docs</div>
+    </div>
+    <div class="ws-divider"></div>
+    <div class="ws-stat">
+      <div class="ws-val">{{ qa_count }}</div>
+      <div class="ws-label">Verified Q&As</div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
