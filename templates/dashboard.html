@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Dashboard — AI Ticket Router{% endblock %}
+{% block title %}Dashboard — Solace{% endblock %}
 
 {% block content %}
 {% set priority_map = {'Critical':'critical','High':'high','Medium':'medium','Low':'low'} %}
@@ -7,57 +7,363 @@
 {% set status_label = {'pending_review':'Pending Review','resolved':'Resolved','escalated':'Escalated'} %}
 {% set dept_icon    = {'IT':'pc-display','HR':'people','Finance':'currency-dollar','Engineering':'code-slash','General':'question-circle'} %}
 
-<div class="d-flex align-items-center justify-content-between mb-4">
-  <h1 class="h5 fw-bold mb-0"><i class="bi bi-grid-1x2 me-2 text-primary"></i>Dashboard</h1>
-  <a href="/submit-ticket" class="btn btn-primary btn-sm"><i class="bi bi-plus me-1"></i>New Ticket</a>
+<style>
+  /* ── Materio Token Overrides ───────────────────────── */
+  :root {
+    --mat-primary:     #7367F0;
+    --mat-primary-lt:  #EDE9FD;
+    --mat-success:     #28C76F;
+    --mat-success-lt:  #DFF7EC;
+    --mat-warning:     #FF9F43;
+    --mat-warning-lt:  #FFF0E0;
+    --mat-danger:      #EA5455;
+    --mat-danger-lt:   #FCEAEA;
+    --mat-info:        #00CFE8;
+    --mat-info-lt:     #DEF9FC;
+    --mat-bg:          #F8F7FA;
+    --mat-card:        #FFFFFF;
+    --mat-text1:       #32475C;
+    --mat-text2:       #8592A3;
+    --mat-border:      #DBDADE;
+    --mat-shadow:      0 2px 6px 0 rgba(67,89,113,.12);
+  }
+
+  body { background: var(--mat-bg) !important; }
+
+  /* ── Page header ───────────────────────────────────── */
+  .mat-page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    gap: .75rem;
+  }
+  .mat-page-title {
+    font-size: 1.375rem;
+    font-weight: 600;
+    color: var(--mat-text1);
+    margin: 0;
+  }
+  .mat-breadcrumb {
+    font-size: 0.8125rem;
+    color: var(--mat-text2);
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+  }
+  .mat-breadcrumb a { color: var(--mat-text2); text-decoration: none; }
+  .mat-breadcrumb a:hover { color: var(--mat-primary); }
+
+  .mat-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    background: var(--mat-primary);
+    color: #fff;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    padding: .5rem 1.1rem;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background .15s, box-shadow .15s;
+    box-shadow: 0 2px 6px rgba(115,103,240,.48);
+  }
+  .mat-btn:hover { background: #6254e0; color: #fff; }
+
+  /* ── Stat cards ────────────────────────────────────── */
+  .mat-stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  @media (max-width: 900px) { .mat-stats-row { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 480px) { .mat-stats-row { grid-template-columns: 1fr; } }
+
+  .mat-stat {
+    background: var(--mat-card);
+    border-radius: 8px;
+    padding: 1.375rem 1.5rem;
+    box-shadow: var(--mat-shadow);
+    display: flex;
+    align-items: center;
+    gap: 1.1rem;
+  }
+  .mat-stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.35rem;
+    flex-shrink: 0;
+  }
+  .mat-stat-body { flex: 1; min-width: 0; }
+  .mat-stat-label {
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--mat-text2);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin-bottom: .25rem;
+  }
+  .mat-stat-value {
+    font-size: 1.625rem;
+    font-weight: 700;
+    color: var(--mat-text1);
+    line-height: 1;
+  }
+  .mat-stat-sub {
+    font-size: 0.75rem;
+    color: var(--mat-text2);
+    margin-top: .2rem;
+  }
+
+  /* ── Cards ─────────────────────────────────────────── */
+  .mat-card {
+    background: var(--mat-card);
+    border-radius: 8px;
+    box-shadow: var(--mat-shadow);
+    overflow: hidden;
+  }
+  .mat-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem 1.5rem .75rem;
+    border-bottom: 1px solid var(--mat-border);
+  }
+  .mat-card-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--mat-text1);
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  .mat-card-title i { color: var(--mat-primary); }
+
+  /* ── Charts row ─────────────────────────────────────── */
+  .mat-charts-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  @media (max-width: 768px) { .mat-charts-row { grid-template-columns: 1fr; } }
+  .mat-chart-body { padding: 1.25rem 1.5rem; }
+
+  /* ── Filter bar ─────────────────────────────────────── */
+  .mat-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: 1rem 1.5rem;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--mat-border);
+  }
+  .mat-filter-bar input,
+  .mat-filter-bar select {
+    font-family: inherit;
+    font-size: 0.8125rem;
+    color: var(--mat-text1);
+    background: var(--mat-bg);
+    border: 1px solid var(--mat-border);
+    border-radius: 6px;
+    padding: .45rem .85rem;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .mat-filter-bar input { min-width: 200px; }
+  .mat-filter-bar input:focus,
+  .mat-filter-bar select:focus { border-color: var(--mat-primary); }
+  .mat-filter-bar select { cursor: pointer; }
+  .mat-count-badge {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: var(--mat-text2);
+    white-space: nowrap;
+  }
+
+  /* ── Table ──────────────────────────────────────────── */
+  .mat-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+  .mat-table thead th {
+    padding: .875rem 1.25rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--mat-text2);
+    background: var(--mat-bg);
+    border-bottom: 1px solid var(--mat-border);
+    white-space: nowrap;
+    user-select: none;
+  }
+  .mat-table tbody tr {
+    border-bottom: 1px solid var(--mat-border);
+    transition: background .12s;
+  }
+  .mat-table tbody tr:last-child { border-bottom: none; }
+  .mat-table tbody tr:hover { background: #F8F7FA; }
+  .mat-table td { padding: .875rem 1.25rem; color: var(--mat-text1); vertical-align: middle; }
+
+  .mat-ticket-id {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--mat-primary-lt);
+    color: var(--mat-primary);
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+  .mat-subject { font-weight: 500; color: var(--mat-text1); margin-bottom: 2px; }
+  .mat-from { font-size: 0.75rem; color: var(--mat-text2); }
+
+  /* Badges */
+  .mbadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .mbadge-dept    { background: var(--mat-primary-lt); color: var(--mat-primary); }
+  .mbadge-pending { background: var(--mat-warning-lt); color: #e67e22; }
+  .mbadge-resolved{ background: var(--mat-success-lt); color: #1e9e55; }
+  .mbadge-escalated{ background: var(--mat-danger-lt); color: #c0392b; }
+  .mbadge-critical{ background: #FCEAEA; color: #c0392b; }
+  .mbadge-high    { background: #FFF0E0; color: #e67e22; }
+  .mbadge-medium  { background: var(--mat-primary-lt); color: var(--mat-primary); }
+  .mbadge-low     { background: #DFF7EC; color: #1e9e55; }
+
+  .mat-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    padding: .35rem .8rem;
+    border-radius: 5px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-decoration: none;
+    transition: opacity .15s;
+    border: 1px solid transparent;
+  }
+  .mat-action-btn:hover { opacity: .82; }
+  .mat-action-review { background: var(--mat-warning-lt); color: #e67e22; border-color: #ffc077; }
+  .mat-action-view   { background: var(--mat-primary-lt); color: var(--mat-primary); border-color: #c5bef8; }
+
+  /* Empty state */
+  .mat-empty {
+    text-align: center;
+    padding: 3.5rem 2rem;
+    color: var(--mat-text2);
+  }
+  .mat-empty i { font-size: 2.5rem; color: var(--mat-border); display: block; margin-bottom: 1rem; }
+  .mat-empty h5 { font-size: 1rem; font-weight: 600; color: var(--mat-text1); margin-bottom: .5rem; }
+  .mat-empty p { font-size: 0.85rem; margin-bottom: 1.25rem; }
+</style>
+
+<!-- ── Page header ── -->
+<div class="mat-page-header">
+  <div>
+    <h1 class="mat-page-title">Dashboard</h1>
+    <div class="mat-breadcrumb">
+      <a href="/welcome">Home</a>
+      <i class="bi bi-chevron-right" style="font-size:.65rem"></i>
+      <span>Dashboard</span>
+    </div>
+  </div>
+  <a href="/submit-ticket" class="mat-btn">
+    <i class="bi bi-plus-lg"></i> New Ticket
+  </a>
 </div>
 
-<!-- Stats -->
-<div class="row g-3 mb-4 stat-grid" style="--bs-gutter-x:1rem">
-  <div class="col-6 col-md-3">
-    <div class="stat-card">
-      <div class="stat-number">{{ stats.total }}</div>
-      <div class="stat-label">Total Tickets</div>
+<!-- ── Stat cards ── -->
+<div class="mat-stats-row">
+  <div class="mat-stat">
+    <div class="mat-stat-icon" style="background:var(--mat-primary-lt);">
+      <i class="bi bi-ticket-perforated" style="color:var(--mat-primary);"></i>
+    </div>
+    <div class="mat-stat-body">
+      <div class="mat-stat-label">Total Tickets</div>
+      <div class="mat-stat-value">{{ stats.total }}</div>
+      <div class="mat-stat-sub">All time</div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
-    <div class="stat-card warning">
-      <div class="stat-number">{{ stats.by_status.get('pending_review', 0) }}</div>
-      <div class="stat-label">Pending Review</div>
+  <div class="mat-stat">
+    <div class="mat-stat-icon" style="background:var(--mat-warning-lt);">
+      <i class="bi bi-hourglass-split" style="color:var(--mat-warning);"></i>
+    </div>
+    <div class="mat-stat-body">
+      <div class="mat-stat-label">Pending Review</div>
+      <div class="mat-stat-value">{{ stats.by_status.get('pending_review', 0) }}</div>
+      <div class="mat-stat-sub">Awaiting action</div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
-    <div class="stat-card success">
-      <div class="stat-number">{{ stats.by_status.get('resolved', 0) }}</div>
-      <div class="stat-label">Resolved</div>
+  <div class="mat-stat">
+    <div class="mat-stat-icon" style="background:var(--mat-success-lt);">
+      <i class="bi bi-check-circle" style="color:var(--mat-success);"></i>
+    </div>
+    <div class="mat-stat-body">
+      <div class="mat-stat-label">Resolved</div>
+      <div class="mat-stat-value">{{ stats.by_status.get('resolved', 0) }}</div>
+      <div class="mat-stat-sub">Closed tickets</div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
-    <div class="stat-card danger">
-      <div class="stat-number">{{ stats.by_status.get('escalated', 0) }}</div>
-      <div class="stat-label">Escalated</div>
+  <div class="mat-stat">
+    <div class="mat-stat-icon" style="background:var(--mat-danger-lt);">
+      <i class="bi bi-exclamation-triangle" style="color:var(--mat-danger);"></i>
+    </div>
+    <div class="mat-stat-body">
+      <div class="mat-stat-label">Escalated</div>
+      <div class="mat-stat-value">{{ stats.by_status.get('escalated', 0) }}</div>
+      <div class="mat-stat-sub">Needs attention</div>
     </div>
   </div>
 </div>
 
-<!-- Charts -->
+<!-- ── Charts ── -->
 {% if stats.total > 0 %}
-<div class="charts-row mb-4">
-  <div class="chart-card">
-    <h6><i class="bi bi-bar-chart me-1"></i>By Department</h6>
-    <canvas id="deptChart" height="180"></canvas>
+<div class="mat-charts-row">
+  <div class="mat-card">
+    <div class="mat-card-header">
+      <div class="mat-card-title"><i class="bi bi-bar-chart"></i> By Department</div>
+    </div>
+    <div class="mat-chart-body">
+      <canvas id="deptChart" height="160"></canvas>
+    </div>
   </div>
-  <div class="chart-card">
-    <h6><i class="bi bi-pie-chart me-1"></i>By Priority</h6>
-    <canvas id="priorityChart" height="180"></canvas>
+  <div class="mat-card">
+    <div class="mat-card-header">
+      <div class="mat-card-title"><i class="bi bi-pie-chart"></i> By Priority</div>
+    </div>
+    <div class="mat-chart-body">
+      <canvas id="priorityChart" height="160"></canvas>
+    </div>
   </div>
 </div>
 {% endif %}
 
-<!-- Ticket table -->
-<div class="card" style="overflow:hidden">
-  <div class="filter-bar">
-    <input type="text" id="searchInput" placeholder="&#x1F50D;  Search tickets..." oninput="filterTickets()" />
+<!-- ── Ticket table ── -->
+<div class="mat-card" style="margin-bottom:2rem">
+  <div class="mat-card-header">
+    <div class="mat-card-title"><i class="bi bi-list-ul"></i> Recent Tickets</div>
+    <span id="resultCount" style="font-size:0.78rem;color:var(--mat-text2);"></span>
+  </div>
+
+  <div class="mat-filter-bar">
+    <input type="text" id="searchInput" placeholder="🔍  Search tickets…" oninput="filterTickets()" />
     <select id="deptFilter" onchange="filterTickets()">
       <option value="">All Departments</option>
       <option>IT</option><option>HR</option><option>Finance</option>
@@ -73,22 +379,21 @@
       <option value="resolved">Resolved</option>
       <option value="escalated">Escalated</option>
     </select>
-    <span id="resultCount" style="font-size:0.75rem;color:var(--text-2);margin-left:auto"></span>
   </div>
 
   {% if tickets %}
-  <div class="table-responsive">
-    <table class="tickets-table" id="ticketsTable">
+  <div style="overflow-x:auto">
+    <table class="mat-table" id="ticketsTable">
       <thead>
         <tr>
-          <th style="width:44px">#</th>
+          <th style="width:52px">#</th>
           <th>Subject</th>
-          <th>From</th>
+          <th>Submitter</th>
           <th>Department</th>
           <th>Priority</th>
           <th>Status</th>
           <th>Created</th>
-          <th style="width:90px"></th>
+          <th style="width:100px">Action</th>
         </tr>
       </thead>
       <tbody id="ticketsBody">
@@ -98,29 +403,39 @@
             data-priority="{{ ticket.priority }}"
             data-status="{{ ticket.status }}"
             data-search="{{ ticket.subject|lower }} {{ ticket.submitter|lower }} {{ ticket.description|lower }}">
-          <td style="color:var(--text-3);font-size:0.75rem">{{ ticket.id }}</td>
           <td>
-            <div class="ticket-subject">{{ ticket.subject[:55] }}{% if ticket.subject|length > 55 %}...{% endif %}</div>
-            <div class="ticket-from">{{ ticket.submitter }}</div>
+            <span class="mat-ticket-id">{{ ticket.id }}</span>
           </td>
-          <td style="font-size:0.8125rem;color:var(--text-2)">{{ ticket.email[:24] }}{% if ticket.email|length > 24 %}...{% endif %}</td>
           <td>
-            <span class="badge badge-dept">
+            <div class="mat-subject">{{ ticket.subject[:52] }}{% if ticket.subject|length > 52 %}…{% endif %}</div>
+            <div class="mat-from">{{ ticket.email[:28] }}{% if ticket.email|length > 28 %}…{% endif %}</div>
+          </td>
+          <td style="color:var(--mat-text2);font-size:0.8rem;">{{ ticket.submitter }}</td>
+          <td>
+            <span class="mbadge mbadge-dept">
               <i class="bi bi-{{ dept_icon.get(ticket.department, 'question-circle') }}"></i>
               {{ ticket.department }}
             </span>
           </td>
-          <td><span class="badge badge-{{ priority_map.get(ticket.priority, 'low') }}">{{ ticket.priority }}</span></td>
-          <td><span class="badge badge-{{ status_map.get(ticket.status, 'pending') }}">{{ status_label.get(ticket.status, ticket.status) }}</span></td>
-          <td style="font-size:0.75rem;color:var(--text-3);white-space:nowrap">{{ ticket.created_at[:16] }}</td>
+          <td>
+            <span class="mbadge mbadge-{{ priority_map.get(ticket.priority, 'low') }}">{{ ticket.priority }}</span>
+          </td>
+          <td>
+            <span class="mbadge mbadge-{{ status_map.get(ticket.status, 'pending') }}">
+              {{ status_label.get(ticket.status, ticket.status) }}
+            </span>
+          </td>
+          <td style="font-size:0.75rem;color:var(--mat-text2);white-space:nowrap;">
+            {{ ticket.created_at[:16] }}
+          </td>
           <td>
             {% if ticket.status == 'pending_review' %}
-              <a href="/review/{{ ticket.id }}" class="btn btn-sm" style="background:#fffbeb;color:#92400e;border:1px solid #fde68a">
-                <i class="bi bi-eye me-1"></i>Review
+              <a href="/review/{{ ticket.id }}" class="mat-action-btn mat-action-review">
+                <i class="bi bi-eye"></i> Review
               </a>
             {% else %}
-              <a href="/ticket/{{ ticket.id }}" class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-eye me-1"></i>View
+              <a href="/ticket/{{ ticket.id }}" class="mat-action-btn mat-action-view">
+                <i class="bi bi-eye"></i> View
               </a>
             {% endif %}
           </td>
@@ -129,18 +444,23 @@
       </tbody>
     </table>
   </div>
-  <div id="noResults" style="display:none" class="empty-state py-4">
-    <i class="bi bi-search"></i>
-    <h5>No tickets match your filters</h5>
-    <p style="font-size:0.875rem">Try adjusting your search or filters</p>
+
+  <div id="noResults" style="display:none">
+    <div class="mat-empty">
+      <i class="bi bi-search"></i>
+      <h5>No tickets match your filters</h5>
+      <p>Try adjusting your search or filters above.</p>
+    </div>
   </div>
 
   {% else %}
-  <div class="empty-state">
+  <div class="mat-empty">
     <i class="bi bi-inbox"></i>
     <h5>No tickets yet</h5>
-    <p style="font-size:0.875rem;margin-bottom:16px">Submit your first ticket to see the AI in action.</p>
-    <a href="/submit-ticket" class="btn btn-primary"><i class="bi bi-plus me-1"></i>Submit a Ticket</a>
+    <p>Submit your first ticket to see the AI in action.</p>
+    <a href="/submit-ticket" class="mat-btn">
+      <i class="bi bi-plus-lg"></i> Submit a Ticket
+    </a>
   </div>
   {% endif %}
 </div>
@@ -158,33 +478,29 @@
     var visible  = 0;
 
     rows.forEach(function(row) {
-      var matchSearch   = !search   || row.dataset.search.includes(search);
-      var matchDept     = !dept     || row.dataset.dept === dept;
-      var matchPriority = !priority || row.dataset.priority === priority;
-      var matchStatus   = !status   || row.dataset.status === status;
-      var show = matchSearch && matchDept && matchPriority && matchStatus;
+      var show =
+        (!search   || row.dataset.search.includes(search)) &&
+        (!dept     || row.dataset.dept === dept) &&
+        (!priority || row.dataset.priority === priority) &&
+        (!status   || row.dataset.status === status);
       row.style.display = show ? '' : 'none';
       if (show) visible++;
     });
 
-    var countEl = document.getElementById('resultCount');
-    countEl.textContent = visible + ' of ' + rows.length + ' tickets';
-    document.getElementById('noResults').style.display = visible === 0 && rows.length > 0 ? 'block' : 'none';
+    document.getElementById('resultCount').textContent = visible + ' of ' + rows.length + ' tickets';
+    document.getElementById('noResults').style.display =
+      visible === 0 && rows.length > 0 ? 'block' : 'none';
   }
 
   document.addEventListener('DOMContentLoaded', function() {
     var rows = document.querySelectorAll('.ticket-row');
-    if (rows.length) document.getElementById('resultCount').textContent = rows.length + ' tickets';
+    if (rows.length)
+      document.getElementById('resultCount').textContent = rows.length + ' tickets';
   });
 
   {% if stats.total > 0 %}
   var deptData     = {{ stats.by_department | tojson }};
-  var priorityData = {{ stats.by_priority | tojson }};
-
-  var chartDefaults = {
-    plugins: { legend: { display: false } },
-    scales: { x: { grid: { display: false }, border: { display: false } }, y: { grid: { color: "#f3f4f6" }, border: { display: false }, ticks: { stepSize: 1, precision: 0 } } }, maintainAspectRatio: true
-  };
+  var priorityData = {{ stats.by_priority   | tojson }};
 
   new Chart(document.getElementById('deptChart'), {
     type: 'bar',
@@ -192,11 +508,22 @@
       labels: Object.keys(deptData),
       datasets: [{
         data: Object.values(deptData),
-        backgroundColor: ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6'],
-        borderRadius: 6, borderSkipped: false, maxBarThickness: 56
+        backgroundColor: ['#7367F0','#28C76F','#FF9F43','#EA5455','#00CFE8'],
+        borderRadius: 5,
+        borderSkipped: false,
+        maxBarThickness: 48
       }]
     },
-    options: { ...chartDefaults, plugins: { legend: { display: false } } }
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, border: { display: false },
+             ticks: { color: '#8592A3', font: { size: 12 } } },
+        y: { grid: { color: '#F8F7FA' }, border: { display: false },
+             ticks: { stepSize: 1, precision: 0, color: '#8592A3', font: { size: 12 } } }
+      },
+      maintainAspectRatio: true
+    }
   });
 
   new Chart(document.getElementById('priorityChart'), {
@@ -205,15 +532,20 @@
       labels: Object.keys(priorityData),
       datasets: [{
         data: Object.values(priorityData),
-        backgroundColor: ['#ef4444','#f59e0b','#6366f1','#10b981'],
-        borderWidth: 2, borderColor: '#fff'
+        backgroundColor: ['#EA5455','#FF9F43','#7367F0','#28C76F'],
+        borderWidth: 3,
+        borderColor: '#fff'
       }]
     },
     options: {
       plugins: {
-        legend: { display: true, position: 'bottom', labels: { font: { size: 12 }, padding: 12 } }
+        legend: {
+          display: true,
+          position: 'bottom',
+          labels: { font: { size: 12 }, padding: 14, color: '#8592A3', usePointStyle: true }
+        }
       },
-      cutout: '65%'
+      cutout: '68%'
     }
   });
   {% endif %}
