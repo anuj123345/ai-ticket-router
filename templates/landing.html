@@ -440,6 +440,11 @@
 <!-- Parallax footer -->
 <section class="parallax-section" id="parallaxSection">
 
+  <!-- Background video -->
+  <video class="parallax-bg-video" autoplay muted loop playsinline>
+    <source src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260419_065931_e3ca7b53-d32e-4ad5-81de-dc9d6fcfda6d.mp4" type="video/mp4">
+  </video>
+
   <!-- Footer card -->
   <div class="footer-card-wrap">
     <div class="footer-card reveal">
@@ -593,9 +598,16 @@
     position: relative;
     height: 100vh;
     overflow: hidden;
-    background-image: url('https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260430_115327_3f256636-9e63-4885-8d0b-09317dc2b0a5.png&w=1280&q=85');
-    background-size: cover;
-    background-position: center;
+    background: #0a0a0a;
+  }
+  .parallax-bg-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 1;
+    z-index: 0;
   }
 
   /* ── Footer card ── */
