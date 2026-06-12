@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOLACE — Eliminate Chaos, Restore Balance</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Italiana&family=Manrope:wght@300;400;500;600&family=Marck+Script&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Italiana&family=Manrope:wght@300;400;500;600&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -226,18 +226,20 @@
       background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.4), transparent);
       margin: 0 auto 5rem;
     }
-    .signature {
-      font-family: 'Marck Script', cursive;
-      font-size: clamp(68px, 14vw, 116px);
-      line-height: 1;
-      margin-bottom: 1.25rem;
-    }
-    .founder-label {
-      font-size: 0.56rem;
-      letter-spacing: 0.42em;
-      text-transform: uppercase;
-      color: rgba(255,255,255,0.4);
+    .product-tagline {
+      font-family: 'Italiana', serif;
+      font-size: clamp(2rem, 6vw, 4.5rem);
+      line-height: 1.15;
+      letter-spacing: 0.02em;
+      font-weight: 400;
+      text-align: center;
+      max-width: 720px;
       margin-bottom: 6rem;
+    }
+    .product-tagline em {
+      font-style: normal;
+      opacity: 0.45;
+      font-size: 0.72em;
     }
     .paragraphs {
       display: flex;
@@ -391,9 +393,9 @@
 
     <div class="divider reveal" style="transition-delay:0.35s"></div>
 
-    <div class="signature reveal" style="transition-delay:0.45s">S.P.D</div>
-
-    <div class="founder-label reveal" style="transition-delay:0.5s">Founder &amp; Chief Architect</div>
+    <div class="product-tagline reveal" style="transition-delay:0.45s">
+      The operating system<br>for modern support teams
+    </div>
 
     <div class="paragraphs reveal" style="transition-delay:0.58s">
       <p>I Was Exhausted By Software That Demanded More Effort Than It Actually Saved. That Is Why We Engineered An Autonomous Architecture That Operates Silently In The Background.</p>
