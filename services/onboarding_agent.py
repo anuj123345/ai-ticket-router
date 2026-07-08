@@ -424,85 +424,13 @@ def parse_response(raw: str) -> dict:
 def answer_question(question: str, history: list[dict] | None = None,
                     doc_filter: str | None = None) -> dict:
     """
-    Full pipeline: retrieve → generate → parse → store.
+    Delegates to the LangGraph RAG pipeline in services/rag_graph.py.
     history: list of {"question": str, "answer": str} from recent session turns.
     doc_filter: restrict retrieval to a single document name (or None = all docs).
     Returns: {answer, sources, possibly_outdated, outdated_reason, conversation_id, has_docs}
     """
-    # 1. Retrieve context — scoped to doc_filter if provided
-    doc_chunks  = search_doc_chunks(question, doc_filter=doc_filter)
-    verified_qa = search_verified_qa(question)
-
-    # If a specific structured file is selected (or matched), do Python-level
-    # aggregation/filtering instead of raw chunk retrieval (avoids context overflow).
-    precomputed = None
-    target_structured = (
-        doc_filter if doc_filter and doc_filter.rsplit('.', 1)[-1].lower() in STRUCTURED_EXTS
-        else next(
-            (c['document_name'] for c in doc_chunks
-             if c.get('document_name', '').rsplit('.', 1)[-1].lower() in STRUCTURED_EXTS),
-            None
-        )
-    )
-    if target_structured:
-        precomputed = _query_structured_doc(target_structured, question)
-
-    if precomputed:
-        qa_ctx = build_context([], verified_qa) if verified_qa else ""
-        context = (qa_ctx + "\n\n" + precomputed).strip()
-    else:
-        context = build_context(doc_chunks, verified_qa)
-
-    sources = []
-    seen_names = set()
-    for c in doc_chunks:
-        if c["document_name"] not in seen_names:
-            seen_names.add(c["document_name"])
-            sources.append({
-                "document_name": c["document_name"],
-                "excerpt":       c["content"][:220] + "…",
-            })
-
-    # 2. Build messages with conversation memory
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-
-    if history:
-        for turn in history[-5:]:
-            messages.append({"role": "user",      "content": turn["question"]})
-            messages.append({"role": "assistant", "content": turn["answer"]})
-
-    user_msg = f"Company documentation & verified answers:\n{context}\n\nEmployee question: {question}"
-    messages.append({"role": "user", "content": user_msg})
-
-    # 3. Generate
-    llm = _llm()
-    response = llm.chat.completions.create(
-        model=os.environ.get("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct"),
-        messages=messages,
-        temperature=0.2,
-        max_tokens=900,
-    )
-    raw    = response.choices[0].message.content.strip()
-    parsed = parse_response(raw)
-
-    # 4. Save conversation
-    db = get_client()
-    conv_resp = db.table("conversations").insert({
-        "question":            question,
-        "answer":              parsed["answer"],
-        "sources":             json.dumps(sources),
-        "is_outdated_flagged": parsed["possibly_outdated"],
-    }).execute()
-    conversation_id = conv_resp.data[0]["id"] if conv_resp.data else None
-
-    return {
-        "answer":            parsed["answer"],
-        "sources":           sources,
-        "possibly_outdated": parsed["possibly_outdated"],
-        "outdated_reason":   parsed["outdated_reason"],
-        "conversation_id":   conversation_id,
-        "has_docs":          len(doc_chunks) > 0 or len(verified_qa) > 0,
-    }
+    from services.rag_graph import run_rag
+    return run_rag(question, history=history, doc_filter=doc_filter)
 
 
 def save_verified_qa(conversation_id: int):
