@@ -199,33 +199,77 @@ ANALYTICAL_PATTERNS = re.compile(
 
 STRUCTURED_EXTS = {'xlsx', 'xls', 'csv'}
 
+_AGGREGATE_STOP = {
+    'give', 'have', 'what', 'from', 'with', 'that', 'this', 'they', 'been',
+    'which', 'percent', 'percentage', 'student', 'students', 'marked', 'section',
+    'column', 'who', 'are', 'the', 'you', 'sheet', 'excel', 'dropout', 'data',
+    'file', 'already', 'uploaded', 'document', 'many', 'number', 'count', 'total',
+}
+
 
 def _is_analytical(question: str) -> bool:
     return bool(ANALYTICAL_PATTERNS.search(question))
 
 
-def _get_all_chunks_for_docs(doc_names: list[str]) -> list[dict]:
-    """Retrieve every chunk from the specified documents (for analytical queries)."""
+def _python_aggregate(doc_name: str, question: str) -> str | None:
+    """
+    For analytical queries on xlsx/csv: fetch ALL chunk content, parse individual
+    data rows in Python, count matches, and return a pre-computed summary string.
+    This avoids sending hundreds of chunks to the LLM (context overflow).
+    """
     client = get_client()
-    results = []
-    seen_ids = set()
-    for name in doc_names:
-        try:
-            resp = (
-                client.table("doc_chunks")
-                .select("id, document_id, document_name, content, chunk_index")
-                .eq("document_name", name)
-                .order("chunk_index")
-                .limit(500)
-                .execute()
-            )
-            for row in (resp.data or []):
-                if row['id'] not in seen_ids:
-                    seen_ids.add(row['id'])
-                    results.append(row)
-        except Exception:
-            continue
-    return results
+    try:
+        resp = (
+            client.table("doc_chunks")
+            .select("content")
+            .eq("document_name", doc_name)
+            .limit(500)
+            .execute()
+        )
+        if not resp.data:
+            return None
+
+        full_text = "\n".join(c.get("content", "") for c in resp.data)
+
+        # Each data row is one line; skip ## section headers and [bracket] labels
+        data_lines = [
+            ln.strip() for ln in full_text.splitlines()
+            if ln.strip()
+            and not ln.strip().startswith("##")
+            and not ln.strip().startswith("[")
+        ]
+        total = len(data_lines)
+        if total == 0:
+            return None
+
+        # Extract meaningful search words from the question
+        words = [
+            w.lower() for w in re.findall(r'\b\w{3,}\b', question.lower())
+            if w.lower() not in _AGGREGATE_STOP
+        ]
+
+        # Try strict match (all top words present in line)
+        strict = [ln for ln in data_lines if all(w in ln.lower() for w in words[:4])]
+        if strict:
+            matched, label = strict, "strict"
+        else:
+            # Broad match (any word)
+            matched = [ln for ln in data_lines if any(w in ln.lower() for w in words[:4])]
+            label = "broad"
+
+        match_count = len(matched)
+        pct = round(match_count / total * 100, 2) if total > 0 else 0
+        samples = "\n".join(matched[:5])
+
+        return (
+            f"=== PRE-COMPUTED ANALYSIS: '{doc_name}' ===\n"
+            f"Total data rows in file: {total}\n"
+            f"Rows matching '{' + '.join(words[:4])}' ({label} match): {match_count}\n"
+            f"Percentage: {pct}%\n\n"
+            f"Sample matching rows:\n{samples}"
+        )
+    except Exception:
+        return None
 
 
 def search_doc_chunks(question: str, max_results: int = 5) -> list[dict]:
@@ -235,8 +279,6 @@ def search_doc_chunks(question: str, max_results: int = 5) -> list[dict]:
     2. Synonym-expanded   → FTS
     3. Key terms only     → FTS
     4. ILIKE fallback on failure
-    For analytical queries on structured files (xlsx/csv), fetches ALL chunks
-    from the matched document so the LLM can count/aggregate correctly.
     Deduplicates by chunk ID, returns up to max_results.
     """
     # Three query variants
@@ -267,20 +309,6 @@ def search_doc_chunks(question: str, max_results: int = 5) -> list[dict]:
     # Fallback to ILIKE if FTS returned nothing
     if not merged:
         add_results(_ilike_fallback(question, max_results))
-
-    # For analytical questions, pull ALL chunks from any structured file matched
-    if _is_analytical(question) and merged:
-        structured_docs = list({
-            c['document_name'] for c in merged
-            if c.get('document_name', '').rsplit('.', 1)[-1].lower() in STRUCTURED_EXTS
-        })
-        if structured_docs:
-            all_chunks = _get_all_chunks_for_docs(structured_docs)
-            if all_chunks:
-                # Replace merged with full dataset so LLM can aggregate
-                seen_ids = {c['id'] for c in all_chunks}
-                non_structured = [c for c in merged if c['id'] not in seen_ids]
-                return all_chunks + non_structured
 
     return merged[:max_results * 2]  # return more chunks = more LLM context
 
@@ -368,7 +396,25 @@ def answer_question(question: str, history: list[dict] | None = None) -> dict:
     # 1. Retrieve context
     doc_chunks  = search_doc_chunks(question)
     verified_qa = search_verified_qa(question)
-    context     = build_context(doc_chunks, verified_qa)
+
+    # For analytical questions on xlsx/csv files, aggregate in Python first
+    # so the LLM only receives a concise summary (avoids context overflow)
+    precomputed = None
+    if _is_analytical(question) and doc_chunks:
+        structured_doc = next(
+            (c['document_name'] for c in doc_chunks
+             if c.get('document_name', '').rsplit('.', 1)[-1].lower() in STRUCTURED_EXTS),
+            None
+        )
+        if structured_doc:
+            precomputed = _python_aggregate(structured_doc, question)
+
+    if precomputed:
+        # Build context from pre-computed summary + any verified Q&A
+        qa_ctx = build_context([], verified_qa) if verified_qa else ""
+        context = (qa_ctx + "\n\n" + precomputed).strip()
+    else:
+        context = build_context(doc_chunks, verified_qa)
 
     sources = []
     seen_names = set()
