@@ -22,6 +22,7 @@ Instructions:
 - If the context doesn't contain enough information, say clearly: "I couldn't find this in the available documentation."
 - Be concise and direct. Use bullet points for multi-step processes.
 - If prior conversation is provided, use it to understand follow-up questions.
+- For analytical questions (count, percentage, total, how many, breakdown): carefully read ALL the provided data rows, count/aggregate them yourself, and give a precise numerical answer. Do not say you can't calculate — use the data rows provided.
 - At the end of your answer include:
   OUTDATED_FLAG: YES or NO
   Mark YES if the content references old dates, says "coming soon", references deprecated systems, or seems vague/inconsistent.
@@ -190,6 +191,43 @@ def _ilike_fallback(query: str, max_results: int) -> list[dict]:
     return results[:max_results]
 
 
+ANALYTICAL_PATTERNS = re.compile(
+    r'\b(percent|percentage|how many|count|total|average|sum|ratio|breakdown|'
+    r'proportion|number of|tally|aggregate|calculate|statistic)\b',
+    re.IGNORECASE
+)
+
+STRUCTURED_EXTS = {'xlsx', 'xls', 'csv'}
+
+
+def _is_analytical(question: str) -> bool:
+    return bool(ANALYTICAL_PATTERNS.search(question))
+
+
+def _get_all_chunks_for_docs(doc_names: list[str]) -> list[dict]:
+    """Retrieve every chunk from the specified documents (for analytical queries)."""
+    client = get_client()
+    results = []
+    seen_ids = set()
+    for name in doc_names:
+        try:
+            resp = (
+                client.table("doc_chunks")
+                .select("id, document_id, document_name, content, chunk_index")
+                .eq("document_name", name)
+                .order("chunk_index")
+                .limit(500)
+                .execute()
+            )
+            for row in (resp.data or []):
+                if row['id'] not in seen_ids:
+                    seen_ids.add(row['id'])
+                    results.append(row)
+        except Exception:
+            continue
+    return results
+
+
 def search_doc_chunks(question: str, max_results: int = 5) -> list[dict]:
     """
     Multi-query retrieval:
@@ -197,6 +235,8 @@ def search_doc_chunks(question: str, max_results: int = 5) -> list[dict]:
     2. Synonym-expanded   → FTS
     3. Key terms only     → FTS
     4. ILIKE fallback on failure
+    For analytical queries on structured files (xlsx/csv), fetches ALL chunks
+    from the matched document so the LLM can count/aggregate correctly.
     Deduplicates by chunk ID, returns up to max_results.
     """
     # Three query variants
@@ -227,6 +267,20 @@ def search_doc_chunks(question: str, max_results: int = 5) -> list[dict]:
     # Fallback to ILIKE if FTS returned nothing
     if not merged:
         add_results(_ilike_fallback(question, max_results))
+
+    # For analytical questions, pull ALL chunks from any structured file matched
+    if _is_analytical(question) and merged:
+        structured_docs = list({
+            c['document_name'] for c in merged
+            if c.get('document_name', '').rsplit('.', 1)[-1].lower() in STRUCTURED_EXTS
+        })
+        if structured_docs:
+            all_chunks = _get_all_chunks_for_docs(structured_docs)
+            if all_chunks:
+                # Replace merged with full dataset so LLM can aggregate
+                seen_ids = {c['id'] for c in all_chunks}
+                non_structured = [c for c in merged if c['id'] not in seen_ids]
+                return all_chunks + non_structured
 
     return merged[:max_results * 2]  # return more chunks = more LLM context
 
