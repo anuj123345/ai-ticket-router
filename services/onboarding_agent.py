@@ -22,7 +22,8 @@ Instructions:
 - If the context doesn't contain enough information, say clearly: "I couldn't find this in the available documentation."
 - Be concise and direct. Use bullet points for multi-step processes.
 - If prior conversation is provided, use it to understand follow-up questions.
-- For analytical questions (count, percentage, total, how many, breakdown): carefully read ALL the provided data rows, count/aggregate them yourself, and give a precise numerical answer. Do not say you can't calculate — use the data rows provided.
+- For structured data (Excel/CSV): ALWAYS lead with a one-line summary stat (e.g. "Found 14 matching records out of 200 total — 7%"). Then show a brief sample if helpful. Do NOT dump the full list unless the pre-computed data explicitly includes a FULL MATCHING RECORDS section. If more records exist, end with "Would you like me to list all N records?"
+- For analytical questions (count, percentage, total, how many, breakdown): use the pre-computed summary provided — do not recalculate.
 - At the end of your answer include:
   OUTDATED_FLAG: YES or NO
   Mark YES if the content references old dates, says "coming soon", references deprecated systems, or seems vague/inconsistent.
@@ -197,6 +198,12 @@ ANALYTICAL_PATTERNS = re.compile(
     re.IGNORECASE
 )
 
+LIST_PATTERNS = re.compile(
+    r'\b(list all|show all|give all|display all|all students|all records|'
+    r'enumerate|full list|complete list|every student|each student)\b',
+    re.IGNORECASE
+)
+
 STRUCTURED_EXTS = {'xlsx', 'xls', 'csv'}
 
 # Words to strip from the question before extracting data search terms
@@ -263,27 +270,34 @@ def _query_structured_doc(doc_name: str, question: str) -> str | None:
         match_count = len(matched)
         pct = round(match_count / total * 100, 2) if total > 0 else 0
 
-        analytical = _is_analytical(question)
+        wants_full_list = bool(LIST_PATTERNS.search(question))
 
-        if analytical:
-            # For count/percentage questions: return summary + sample rows
-            samples = "\n".join(matched[:10])
+        # Always lead with analytics summary
+        summary = (
+            f"=== DATA SUMMARY: '{doc_name}' ===\n"
+            f"Total records in file: {total}\n"
+            f"Matching records: {match_count} ({pct}%)\n"
+            f"Search terms used: {', '.join(words[:5])}"
+        )
+
+        if wants_full_list:
+            # User explicitly asked for the full list
+            rows_text = "\n".join(matched[:60])
+            overflow = f"\n[...and {match_count - 60} more records not shown]" if match_count > 60 else ""
             return (
-                f"=== DATA ANALYSIS: '{doc_name}' ===\n"
-                f"Total records: {total}\n"
-                f"Matching records (search terms: {', '.join(words[:5])}): {match_count}\n"
-                f"Percentage: {pct}%\n\n"
-                f"Sample matching records:\n{samples}"
+                f"{summary}\n\n"
+                f"=== FULL MATCHING RECORDS ===\n"
+                f"{rows_text}{overflow}"
             )
         else:
-            # For listing/detail questions: return the actual matching rows (capped at 60)
-            rows_text = "\n".join(matched[:60])
-            overflow = f"\n... and {match_count - 60} more records." if match_count > 60 else ""
+            # Show analytics + a small sample, offer the full list
+            sample = "\n".join(matched[:5])
+            offer = f"\n\nTell the user: {match_count} matching records found. Ask if they want the full list." if match_count > 5 else ""
             return (
-                f"=== DATA FROM '{doc_name}' ===\n"
-                f"Found {match_count} matching records out of {total} total "
-                f"(search terms: {', '.join(words[:5])}):\n\n"
-                f"{rows_text}{overflow}"
+                f"{summary}\n\n"
+                f"=== SAMPLE (first 5 of {match_count}) ===\n"
+                f"{sample}"
+                f"{offer}"
             )
     except Exception:
         return None
@@ -374,9 +388,14 @@ def parse_response(raw: str) -> dict:
     outdated_reason = None
 
     if "<answer>" in raw and "</answer>" in raw:
+        # Use rfind for </answer> so we capture the last (complete) block
         start = raw.index("<answer>") + len("<answer>")
-        end   = raw.index("</answer>")
-        answer = raw[start:end].strip()
+        end   = raw.rfind("</answer>")
+        if end > start:
+            answer = raw[start:end].strip()
+        else:
+            # Malformed tags — strip all XML-like tags from raw
+            answer = re.sub(r'</?answer>', '', raw).strip()
 
     if "OUTDATED_FLAG: YES" in raw.upper():
         possibly_outdated = True
