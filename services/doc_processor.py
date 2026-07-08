@@ -32,12 +32,54 @@ def extract_text_plain(file_bytes: bytes) -> str:
     return file_bytes.decode("utf-8", errors="replace")
 
 
+def extract_text_xlsx(file_bytes: bytes) -> str:
+    """
+    Convert a structured Excel file to natural-language text for RAG chunking.
+    Each sheet becomes a section. Each row becomes a sentence using
+    'Column: Value, Column: Value' format so the LLM can answer questions
+    about specific fields naturally.
+    """
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+    sections = []
+
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            continue
+
+        # First non-empty row = headers
+        headers = [str(h).strip() if h is not None else f"Column{i+1}"
+                   for i, h in enumerate(rows[0])]
+
+        lines = [f"## {sheet_name}"]
+        for row in rows[1:]:
+            # Skip fully empty rows
+            if all(cell is None or str(cell).strip() == "" for cell in row):
+                continue
+            parts = []
+            for header, cell in zip(headers, row):
+                if cell is not None and str(cell).strip() != "":
+                    parts.append(f"{header}: {cell}")
+            if parts:
+                lines.append(", ".join(parts) + ".")
+
+        if len(lines) > 1:
+            sections.append("\n".join(lines))
+
+    wb.close()
+    return "\n\n".join(sections)
+
+
 def extract_text(file_bytes: bytes, file_type: str) -> str:
     ft = file_type.lower()
     if ft == "pdf":
         return extract_text_pdf(file_bytes)
     elif ft == "docx":
         return extract_text_docx(file_bytes)
+    elif ft in ("xlsx", "xls"):
+        return extract_text_xlsx(file_bytes)
     else:
         return extract_text_plain(file_bytes)
 
