@@ -149,20 +149,23 @@ def _llm() -> OpenAI:
 
 # ── Retrieval ─────────────────────────────────────────────────────────────────
 
-def _fts_search(query_text: str, max_results: int) -> list[dict]:
-    """Run a single FTS query via search_docs RPC."""
+def _fts_search(query_text: str, max_results: int, doc_filter: str | None = None) -> list[dict]:
+    """Run a single FTS query via search_docs RPC, then optionally filter by doc name."""
     client = get_client()
     try:
         resp = client.rpc("search_docs", {
             "query_text":  query_text,
-            "max_results": max_results,
+            "max_results": max_results if not doc_filter else max_results * 3,
         }).execute()
-        return resp.data or []
+        rows = resp.data or []
+        if doc_filter:
+            rows = [r for r in rows if r.get("document_name") == doc_filter]
+        return rows
     except Exception:
         return []
 
 
-def _ilike_fallback(query: str, max_results: int) -> list[dict]:
+def _ilike_fallback(query: str, max_results: int, doc_filter: str | None = None) -> list[dict]:
     """Keyword-level ILIKE search — tries each significant word separately."""
     client = get_client()
     stop = {'what', 'is', 'the', 'how', 'do', 'i', 'can', 'get', 'my', 'a',
@@ -174,13 +177,14 @@ def _ilike_fallback(query: str, max_results: int) -> list[dict]:
     results = []
     for word in words[:4]:
         try:
-            resp = (
+            q = (
                 client.table("doc_chunks")
                 .select("id, document_id, document_name, content")
                 .ilike("content", f"%{word}%")
-                .limit(max_results)
-                .execute()
             )
+            if doc_filter:
+                q = q.eq("document_name", doc_filter)
+            resp = q.limit(max_results).execute()
             for row in (resp.data or []):
                 if row['id'] not in seen_ids:
                     seen_ids.add(row['id'])
@@ -303,16 +307,17 @@ def _query_structured_doc(doc_name: str, question: str) -> str | None:
         return None
 
 
-def search_doc_chunks(question: str, max_results: int = 5) -> list[dict]:
+def search_doc_chunks(question: str, max_results: int = 5,
+                      doc_filter: str | None = None) -> list[dict]:
     """
     Multi-query retrieval:
     1. Original question  → FTS
     2. Synonym-expanded   → FTS
     3. Key terms only     → FTS
     4. ILIKE fallback on failure
+    When doc_filter is set, results are restricted to that document only.
     Deduplicates by chunk ID, returns up to max_results.
     """
-    # Three query variants
     q_original = question
     q_expanded = expand_query(question)
     q_keywords = extract_key_terms(question)
@@ -326,22 +331,15 @@ def search_doc_chunks(question: str, max_results: int = 5) -> list[dict]:
                 seen_ids.add(row['id'])
                 merged.append(row)
 
-    # Pass 1: original query
-    add_results(_fts_search(q_original, max_results))
-
-    # Pass 2: synonym-expanded (only if different from original)
+    add_results(_fts_search(q_original, max_results, doc_filter))
     if q_expanded != q_original:
-        add_results(_fts_search(q_expanded, max_results))
-
-    # Pass 3: key terms only (catches cases where full phrase confuses FTS)
+        add_results(_fts_search(q_expanded, max_results, doc_filter))
     if q_keywords and q_keywords != q_original.lower():
-        add_results(_fts_search(q_keywords, max_results))
-
-    # Fallback to ILIKE if FTS returned nothing
+        add_results(_fts_search(q_keywords, max_results, doc_filter))
     if not merged:
-        add_results(_ilike_fallback(question, max_results))
+        add_results(_ilike_fallback(question, max_results, doc_filter))
 
-    return merged[:max_results * 2]  # return more chunks = more LLM context
+    return merged[:max_results * 2]
 
 
 def search_verified_qa(question: str, max_results: int = 3) -> list[dict]:
@@ -423,28 +421,31 @@ def parse_response(raw: str) -> dict:
 
 # ── Main pipeline ─────────────────────────────────────────────────────────────
 
-def answer_question(question: str, history: list[dict] | None = None) -> dict:
+def answer_question(question: str, history: list[dict] | None = None,
+                    doc_filter: str | None = None) -> dict:
     """
     Full pipeline: retrieve → generate → parse → store.
     history: list of {"question": str, "answer": str} from recent session turns.
+    doc_filter: restrict retrieval to a single document name (or None = all docs).
     Returns: {answer, sources, possibly_outdated, outdated_reason, conversation_id, has_docs}
     """
-    # 1. Retrieve context
-    doc_chunks  = search_doc_chunks(question)
+    # 1. Retrieve context — scoped to doc_filter if provided
+    doc_chunks  = search_doc_chunks(question, doc_filter=doc_filter)
     verified_qa = search_verified_qa(question)
 
-    # For ANY query that matches an xlsx/csv file: do Python-level filtering
-    # instead of sending raw chunks to the LLM (avoids context overflow and
-    # missing data due to top-N retrieval limits).
+    # If a specific structured file is selected (or matched), do Python-level
+    # aggregation/filtering instead of raw chunk retrieval (avoids context overflow).
     precomputed = None
-    if doc_chunks:
-        structured_doc = next(
+    target_structured = (
+        doc_filter if doc_filter and doc_filter.rsplit('.', 1)[-1].lower() in STRUCTURED_EXTS
+        else next(
             (c['document_name'] for c in doc_chunks
              if c.get('document_name', '').rsplit('.', 1)[-1].lower() in STRUCTURED_EXTS),
             None
         )
-        if structured_doc:
-            precomputed = _query_structured_doc(structured_doc, question)
+    )
+    if target_structured:
+        precomputed = _query_structured_doc(target_structured, question)
 
     if precomputed:
         qa_ctx = build_context([], verified_qa) if verified_qa else ""
@@ -521,6 +522,65 @@ def save_verified_qa(conversation_id: int):
         }).eq("id", existing.data[0]["id"]).execute()
     else:
         db.table("verified_qa").insert({"question": q, "answer": a}).execute()
+
+
+def suggest_questions(doc_name: str, n: int = 6) -> list[str]:
+    """
+    Generate n suggested questions for a given document by sampling its content
+    and asking the LLM to propose relevant questions a user might ask.
+    """
+    client = get_client()
+    try:
+        # Sample a few chunks from the document
+        resp = (
+            client.table("doc_chunks")
+            .select("content")
+            .eq("document_name", doc_name)
+            .limit(8)
+            .execute()
+        )
+        chunks = resp.data or []
+        if not chunks:
+            return []
+
+        sample = "\n\n".join(c["content"] for c in chunks[:5])
+        ext = doc_name.rsplit(".", 1)[-1].lower()
+
+        if ext in STRUCTURED_EXTS:
+            prompt = (
+                f"You are given a sample of structured data from '{doc_name}':\n\n"
+                f"{sample}\n\n"
+                f"Generate exactly {n} short, specific questions a user might ask about this data. "
+                f"Focus on counts, percentages, filtering, and lookups. "
+                f"Return ONLY a numbered list, one question per line, no explanation."
+            )
+        else:
+            prompt = (
+                f"You are given a sample from the document '{doc_name}':\n\n"
+                f"{sample}\n\n"
+                f"Generate exactly {n} short questions an employee might ask about this document. "
+                f"Make them specific and practical. "
+                f"Return ONLY a numbered list, one question per line, no explanation."
+            )
+
+        llm = _llm()
+        resp = llm.chat.completions.create(
+            model=os.environ.get("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct"),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            max_tokens=300,
+        )
+        raw = resp.choices[0].message.content.strip()
+
+        # Parse numbered list
+        questions = []
+        for line in raw.splitlines():
+            line = re.sub(r'^\d+[\.\)]\s*', '', line).strip()
+            if line and len(line) > 10:
+                questions.append(line)
+        return questions[:n]
+    except Exception:
+        return []
 
 
 def get_feedback_stats() -> dict:

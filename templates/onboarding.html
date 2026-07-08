@@ -14,92 +14,89 @@
     </a>
   </div>
 
+  <!-- ── Document selector ───────────────────────────────────────────── -->
+  {% if documents %}
+  <div class="ob-doc-selector">
+    <span class="ob-doc-selector-label"><i class="bi bi-folder2-open me-1"></i>Search in:</span>
+    <div class="ob-doc-pills" id="docPills">
+      <button class="ob-doc-pill active" data-doc="" onclick="selectDoc(this)">
+        <i class="bi bi-files"></i> All documents
+      </button>
+      {% for doc in documents %}
+      <button class="ob-doc-pill" data-doc="{{ doc.name }}" onclick="selectDoc(this)"
+        title="{{ doc.name }}">
+        <i class="bi bi-file-earmark-{% if doc.file_type == 'pdf' %}pdf{% elif doc.file_type == 'docx' %}word{% elif doc.file_type in ['xlsx','xls','csv'] %}spreadsheet{% else %}text{% endif %}"></i>
+        {{ doc.name | truncate(28, True, '…') }}
+      </button>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
   <div class="ob-layout">
 
     <!-- ── Chat panel ──────────────────────────────────────────────── -->
     <div class="ob-chat-panel">
 
-      <!-- Messages area -->
       <div class="ob-messages" id="messagesArea">
-        <!-- Welcome message -->
         <div class="ob-msg ob-msg-assistant">
           <div class="ob-msg-avatar"><i class="bi bi-robot"></i></div>
           <div class="ob-msg-body">
             <div class="ob-msg-bubble">
-              Hi! I'm your onboarding assistant. Ask me anything about company policies, benefits, processes, or procedures — I'll answer based on your uploaded documentation and always show my sources.
+              Hi! I'm your onboarding assistant. {% if documents %}Select a document above to focus your search, or ask anything across all {{ documents | length }} uploaded files.{% else %}Upload documents to get started — I'll answer questions grounded in your company docs.{% endif %}
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Typing indicator -->
       <div class="ob-typing" id="typingIndicator" style="display:none">
         <div class="ob-msg-avatar"><i class="bi bi-robot"></i></div>
-        <div class="ob-typing-dots">
-          <span></span><span></span><span></span>
-        </div>
+        <div class="ob-typing-dots"><span></span><span></span><span></span></div>
       </div>
 
-      <!-- Input bar -->
       <div class="ob-input-bar">
+        <div class="ob-doc-context-badge" id="contextBadge" style="display:none">
+          <i class="bi bi-funnel-fill"></i> <span id="contextBadgeText"></span>
+          <button onclick="selectDocByName('')" class="ob-badge-clear" title="Clear filter">×</button>
+        </div>
         <div class="ob-input-wrap">
           <textarea
             id="questionInput"
             class="ob-input"
-            placeholder="e.g. How many days of PTO do I get in my first year?"
+            placeholder="Ask a question about the selected document…"
             rows="1"
           ></textarea>
           <button id="sendBtn" class="ob-send-btn" onclick="sendQuestion()">
             <i class="bi bi-send-fill"></i>
           </button>
         </div>
-        <div class="ob-input-hint">Answers are grounded in your uploaded company docs &middot; Sources shown below each answer</div>
+        <div class="ob-input-hint">Answers grounded in uploaded docs &middot; Sources shown below each answer</div>
       </div>
     </div>
 
-    <!-- ── Sidebar: starter questions ──────────────────────────────── -->
+    <!-- ── Sidebar ──────────────────────────────────────────────────── -->
     <aside class="ob-sidebar">
-      <div class="ob-sidebar-title">Common questions</div>
-      <div class="ob-starters">
-        <button class="ob-starter" onclick="ask(this.dataset.q)"
-          data-q="What is the vacation and PTO policy?">
-          <i class="bi bi-calendar-check"></i> Vacation &amp; PTO policy
-        </button>
-        <button class="ob-starter" onclick="ask(this.dataset.q)"
-          data-q="How do I request time off or sick leave?">
-          <i class="bi bi-calendar-x"></i> Request time off
-        </button>
-        <button class="ob-starter" onclick="ask(this.dataset.q)"
-          data-q="What are the remote work and work from home policies?">
-          <i class="bi bi-house-door"></i> Remote work policy
-        </button>
-        <button class="ob-starter" onclick="ask(this.dataset.q)"
-          data-q="What health insurance and benefits are available?">
-          <i class="bi bi-heart-pulse"></i> Health benefits
-        </button>
-        <button class="ob-starter" onclick="ask(this.dataset.q)"
-          data-q="What is the performance review and promotion process?">
-          <i class="bi bi-graph-up-arrow"></i> Performance reviews
-        </button>
-        <button class="ob-starter" onclick="ask(this.dataset.q)"
-          data-q="What is the code of conduct and company values?">
-          <i class="bi bi-shield-check"></i> Code of conduct
-        </button>
-        <button class="ob-starter" onclick="ask(this.dataset.q)"
-          data-q="How do I set up my laptop and get access to tools?">
-          <i class="bi bi-laptop"></i> IT setup &amp; access
-        </button>
-        <button class="ob-starter" onclick="ask(this.dataset.q)"
-          data-q="What is the expense reimbursement process?">
-          <i class="bi bi-receipt"></i> Expense reimbursement
-        </button>
+      <div class="ob-sidebar-title" id="sidebarTitle">Suggested questions</div>
+
+      <div class="ob-starters" id="startersContainer">
+        <!-- Populated dynamically based on selected doc -->
+        <div class="ob-starters-loading" id="startersLoading" style="display:none">
+          <span class="spinner-border spinner-border-sm text-primary me-2"></span>
+          Generating questions…
+        </div>
+        {% if not documents %}
+        <div class="ob-tip" style="color:var(--text-3);font-size:0.8125rem">
+          <i class="bi bi-info-circle me-1"></i> Upload documents to see suggested questions.
+        </div>
+        {% endif %}
       </div>
 
       <div class="ob-sidebar-title mt-4">Tips</div>
       <div class="ob-tips">
-        <div class="ob-tip"><i class="bi bi-lightbulb"></i> Be specific for better answers</div>
+        <div class="ob-tip"><i class="bi bi-lightbulb"></i> Select a document to focus the AI on one file</div>
+        <div class="ob-tip"><i class="bi bi-bar-chart"></i> Ask "how many" or "percentage" for data analysis</div>
+        <div class="ob-tip"><i class="bi bi-list-ul"></i> Say "list all" to get the full matching records</div>
         <div class="ob-tip"><i class="bi bi-bookmark"></i> Thumbs down flags answers for review</div>
-        <div class="ob-tip"><i class="bi bi-exclamation-triangle"></i> Flag outdated info for your HR team</div>
       </div>
     </aside>
   </div>
@@ -108,24 +105,115 @@
 
 {% block scripts %}
 <script>
-const messagesArea = document.getElementById('messagesArea');
-const questionInput = document.getElementById('questionInput');
-const conversationHistory = [];   // {question, answer} — last 5 kept
+const messagesArea   = document.getElementById('messagesArea');
+const questionInput  = document.getElementById('questionInput');
+const contextBadge   = document.getElementById('contextBadge');
+const contextBadgeText = document.getElementById('contextBadgeText');
+const startersContainer = document.getElementById('startersContainer');
+const startersLoading   = document.getElementById('startersLoading');
+const sidebarTitle      = document.getElementById('sidebarTitle');
 
-// Auto-resize textarea
+const conversationHistory = [];
+let selectedDoc = '';   // '' = all documents
+
+// ── Document selector ─────────────────────────────────────────────────
+function selectDoc(btn) {
+  document.querySelectorAll('.ob-doc-pill').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  selectDocByName(btn.dataset.doc);
+}
+
+function selectDocByName(docName) {
+  selectedDoc = docName;
+
+  // Sync pill UI if called programmatically (e.g. clear button)
+  document.querySelectorAll('.ob-doc-pill').forEach(p => {
+    p.classList.toggle('active', p.dataset.doc === docName);
+  });
+
+  // Context badge in input bar
+  if (docName) {
+    contextBadgeText.textContent = docName;
+    contextBadge.style.display = 'flex';
+    questionInput.placeholder = `Ask about "${docName}"…`;
+    sidebarTitle.textContent = 'Suggested questions';
+    loadSuggestedQuestions(docName);
+  } else {
+    contextBadge.style.display = 'none';
+    questionInput.placeholder = 'Ask a question about the selected document…';
+    sidebarTitle.textContent = 'Suggested questions';
+    renderDefaultStarters();
+  }
+}
+
+// ── Suggested questions ───────────────────────────────────────────────
+function renderDefaultStarters() {
+  const defaultQs = [
+    { icon: 'bi-calendar-check',  q: 'What is the vacation and PTO policy?',             label: 'Vacation & PTO policy' },
+    { icon: 'bi-calendar-x',      q: 'How do I request time off or sick leave?',          label: 'Request time off' },
+    { icon: 'bi-house-door',      q: 'What are the remote work policies?',                label: 'Remote work policy' },
+    { icon: 'bi-heart-pulse',     q: 'What health insurance benefits are available?',     label: 'Health benefits' },
+    { icon: 'bi-graph-up-arrow',  q: 'What is the performance review process?',           label: 'Performance reviews' },
+    { icon: 'bi-shield-check',    q: 'What is the code of conduct?',                      label: 'Code of conduct' },
+    { icon: 'bi-laptop',          q: 'How do I set up my laptop and get tool access?',    label: 'IT setup & access' },
+    { icon: 'bi-receipt',         q: 'What is the expense reimbursement process?',        label: 'Expense reimbursement' },
+  ];
+  startersContainer.innerHTML = defaultQs.map(s => `
+    <button class="ob-starter" onclick="ask(this.dataset.q)" data-q="${escAttr(s.q)}">
+      <i class="bi ${s.icon}"></i> ${escHtml(s.label)}
+    </button>
+  `).join('');
+}
+
+async function loadSuggestedQuestions(docName) {
+  startersContainer.innerHTML = '';
+  startersLoading.style.display = 'flex';
+  startersContainer.appendChild(startersLoading);
+
+  try {
+    const res  = await fetch('/onboarding/suggest-questions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ doc_name: docName }),
+    });
+    const data = await res.json();
+    const qs   = data.questions || [];
+
+    startersLoading.style.display = 'none';
+    startersContainer.innerHTML = '';
+
+    if (qs.length === 0) {
+      startersContainer.innerHTML = '<div class="ob-tip" style="color:var(--text-3);font-size:0.8125rem"><i class="bi bi-info-circle me-1"></i> No suggestions available for this document.</div>';
+      return;
+    }
+
+    qs.forEach(q => {
+      const btn = document.createElement('button');
+      btn.className = 'ob-starter';
+      btn.dataset.q = q;
+      btn.onclick = () => ask(q);
+      btn.innerHTML = `<i class="bi bi-chat-right-text"></i> ${escHtml(q)}`;
+      startersContainer.appendChild(btn);
+    });
+  } catch (e) {
+    startersLoading.style.display = 'none';
+    startersContainer.innerHTML = '<div class="ob-tip" style="color:var(--text-3);font-size:0.8125rem"><i class="bi bi-exclamation-circle me-1"></i> Could not load suggestions.</div>';
+  }
+}
+
+// Initialise with defaults on load
+renderDefaultStarters();
+
+// ── Chat ──────────────────────────────────────────────────────────────
 questionInput.addEventListener('input', function() {
   this.style.height = 'auto';
   this.style.height = Math.min(this.scrollHeight, 120) + 'px';
 });
-
 questionInput.addEventListener('keydown', function(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
 });
 
-function ask(q) {
-  questionInput.value = q;
-  sendQuestion();
-}
+function ask(q) { questionInput.value = q; sendQuestion(); }
 
 function sendQuestion() {
   const q = questionInput.value.trim();
@@ -141,7 +229,11 @@ function sendQuestion() {
   fetch('/onboarding/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question: q, history: conversationHistory.slice(-5) }),
+    body: JSON.stringify({
+      question:   q,
+      history:    conversationHistory.slice(-5),
+      doc_filter: selectedDoc || null,
+    }),
   })
   .then(r => r.json())
   .then(data => {
@@ -149,13 +241,11 @@ function sendQuestion() {
     appendAssistantMessage(data, q);
     scrollToBottom();
   })
-  .catch(err => {
+  .catch(() => {
     document.getElementById('typingIndicator').style.display = 'none';
     appendAssistantMessage({ answer: 'Sorry, something went wrong. Please try again.', sources: [], possibly_outdated: false }, q);
   })
-  .finally(() => {
-    document.getElementById('sendBtn').disabled = false;
-  });
+  .finally(() => { document.getElementById('sendBtn').disabled = false; });
 }
 
 function appendUserMessage(text) {
@@ -164,6 +254,7 @@ function appendUserMessage(text) {
   div.innerHTML = `
     <div class="ob-msg-body">
       <div class="ob-msg-bubble">${escHtml(text)}</div>
+      ${selectedDoc ? `<div class="ob-msg-doc-tag"><i class="bi bi-funnel-fill"></i> ${escHtml(selectedDoc)}</div>` : ''}
     </div>
     <div class="ob-msg-avatar ob-msg-avatar-user"><i class="bi bi-person-fill"></i></div>
   `;
@@ -171,29 +262,25 @@ function appendUserMessage(text) {
 }
 
 function appendAssistantMessage(data, question) {
-  // Save to conversation memory
   if (data.answer && question) {
     conversationHistory.push({ question, answer: data.answer });
     if (conversationHistory.length > 10) conversationHistory.shift();
   }
-  const convId = data.conversation_id;
+  const convId  = data.conversation_id;
   const hasDocs = data.has_docs !== false;
 
-  // Outdated warning
   const outdatedHtml = data.possibly_outdated ? `
     <div class="ob-outdated-banner">
       <i class="bi bi-exclamation-triangle-fill"></i>
       <span>This information may be outdated${data.outdated_reason ? ': ' + escHtml(data.outdated_reason) : ''}.</span>
     </div>` : '';
 
-  // No-docs warning
   const noDocsHtml = !hasDocs ? `
     <div class="ob-no-docs-banner">
       <i class="bi bi-info-circle"></i>
       <span>No documents have been uploaded yet. <a href="/onboarding/admin">Upload docs</a> to get grounded answers.</span>
     </div>` : '';
 
-  // Sources
   const sourcesHtml = data.sources && data.sources.length > 0 ? `
     <details class="ob-sources">
       <summary><i class="bi bi-files me-1"></i>${data.sources.length} source${data.sources.length > 1 ? 's' : ''} used</summary>
@@ -207,19 +294,12 @@ function appendAssistantMessage(data, question) {
       </div>
     </details>` : '';
 
-  // Feedback buttons
   const feedbackHtml = convId ? `
     <div class="ob-feedback" id="fb-${convId}">
       <span class="ob-feedback-label">Was this helpful?</span>
-      <button class="ob-fb-btn" onclick="submitFeedback(${convId}, 1, this)" title="Yes, helpful">
-        <i class="bi bi-hand-thumbs-up"></i>
-      </button>
-      <button class="ob-fb-btn" onclick="submitFeedback(${convId}, -1, this)" title="Not helpful">
-        <i class="bi bi-hand-thumbs-down"></i>
-      </button>
-      <button class="ob-fb-btn ob-fb-flag" onclick="flagOutdated(${convId}, this)" title="Flag as outdated">
-        <i class="bi bi-flag"></i> Flag outdated
-      </button>
+      <button class="ob-fb-btn" onclick="submitFeedback(${convId}, 1, this)"><i class="bi bi-hand-thumbs-up"></i></button>
+      <button class="ob-fb-btn" onclick="submitFeedback(${convId}, -1, this)"><i class="bi bi-hand-thumbs-down"></i></button>
+      <button class="ob-fb-btn ob-fb-flag" onclick="flagOutdated(${convId}, this)"><i class="bi bi-flag"></i> Flag outdated</button>
     </div>` : '';
 
   const div = document.createElement('div');
@@ -227,11 +307,9 @@ function appendAssistantMessage(data, question) {
   div.innerHTML = `
     <div class="ob-msg-avatar"><i class="bi bi-robot"></i></div>
     <div class="ob-msg-body">
-      ${noDocsHtml}
-      ${outdatedHtml}
+      ${noDocsHtml}${outdatedHtml}
       <div class="ob-msg-bubble">${formatAnswer(data.answer)}</div>
-      ${sourcesHtml}
-      ${feedbackHtml}
+      ${sourcesHtml}${feedbackHtml}
     </div>
   `;
   messagesArea.appendChild(div);
@@ -239,14 +317,11 @@ function appendAssistantMessage(data, question) {
 
 function formatAnswer(text) {
   if (!text) return '';
-  // Convert markdown-ish formatting
   let html = escHtml(text);
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-  // Bullet points
-  html = html.replace(/^[•\-] (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-  // Line breaks
+  html = html.replace(/^[•\-\*] (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>');
   html = html.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
   return '<p>' + html + '</p>';
 }
@@ -255,10 +330,9 @@ function escHtml(s) {
   if (!s) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+function escAttr(s) { return escHtml(s).replace(/'/g, '&#39;'); }
 
-function scrollToBottom() {
-  setTimeout(() => messagesArea.scrollTop = messagesArea.scrollHeight, 50);
-}
+function scrollToBottom() { setTimeout(() => messagesArea.scrollTop = messagesArea.scrollHeight, 50); }
 
 async function submitFeedback(convId, rating, btn) {
   const fbDiv = document.getElementById('fb-' + convId);
@@ -268,8 +342,8 @@ async function submitFeedback(convId, rating, btn) {
     body: JSON.stringify({ conversation_id: convId, rating }),
   });
   fbDiv.innerHTML = rating === 1
-    ? '<span class="ob-feedback-done"><i class="bi bi-check-circle-fill text-success"></i> Thanks for the feedback!</span>'
-    : '<span class="ob-feedback-done"><i class="bi bi-check-circle-fill text-warning"></i> Noted — we\'ll review this answer.</span>';
+    ? '<span class="ob-feedback-done"><i class="bi bi-check-circle-fill text-success"></i> Thanks!</span>'
+    : '<span class="ob-feedback-done"><i class="bi bi-check-circle-fill text-warning"></i> Noted — we\'ll review this.</span>';
 }
 
 async function flagOutdated(convId, btn) {
@@ -280,7 +354,7 @@ async function flagOutdated(convId, btn) {
     body: JSON.stringify({ conversation_id: convId, is_flagged: true, flag_comment: comment || '' }),
   });
   const fbDiv = document.getElementById('fb-' + convId);
-  fbDiv.innerHTML = '<span class="ob-feedback-done"><i class="bi bi-flag-fill text-danger"></i> Flagged for review. Thank you!</span>';
+  fbDiv.innerHTML = '<span class="ob-feedback-done"><i class="bi bi-flag-fill text-danger"></i> Flagged. Thank you!</span>';
 }
 </script>
 {% endblock %}

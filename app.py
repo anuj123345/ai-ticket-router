@@ -361,19 +361,21 @@ def ops_query():
 @app.route("/onboarding")
 @login_required
 def onboarding():
-    return render_template("onboarding.html")
+    documents = get_all_documents()
+    return render_template("onboarding.html", documents=documents)
 
 
 @app.route("/onboarding/chat", methods=["POST"])
 @login_required
 def onboarding_chat():
-    data     = request.get_json(silent=True) or {}
-    question = data.get("question", "").strip()
-    history  = data.get("history", [])
+    data       = request.get_json(silent=True) or {}
+    question   = data.get("question", "").strip()
+    history    = data.get("history", [])
+    doc_filter = data.get("doc_filter", None)   # specific doc name or None = all
     if not question:
         return jsonify({"error": "Question is required."}), 400
     try:
-        result = answer_question(question, history=history)
+        result = answer_question(question, history=history, doc_filter=doc_filter)
         return jsonify(result)
     except Exception as e:
         return jsonify({
@@ -382,6 +384,21 @@ def onboarding_chat():
             "sources":  [],
             "has_docs": False,
         }), 500
+
+
+@app.route("/onboarding/suggest-questions", methods=["POST"])
+@login_required
+def onboarding_suggest_questions():
+    from services.onboarding_agent import suggest_questions
+    data     = request.get_json(silent=True) or {}
+    doc_name = data.get("doc_name", "").strip()
+    if not doc_name:
+        return jsonify({"questions": []}), 400
+    try:
+        qs = suggest_questions(doc_name)
+        return jsonify({"questions": qs})
+    except Exception:
+        return jsonify({"questions": []}), 500
 
 
 @app.route("/onboarding/feedback", methods=["POST"])
@@ -431,8 +448,8 @@ def onboarding_upload():
         return jsonify({"error": "Unsupported file type. Use PDF, DOCX, TXT, MD, XLSX, or CSV."}), 400
 
     file_bytes = f.read()
-    if len(file_bytes) > 3 * 1024 * 1024:
-        return jsonify({"error": "File too large. Maximum size is 3 MB."}), 400
+    if len(file_bytes) > 4 * 1024 * 1024:
+        return jsonify({"error": "File too large. Maximum size is 4 MB (Vercel free plan limit)."}), 400
     if len(file_bytes) == 0:
         return jsonify({"error": "File is empty."}), 400
 
