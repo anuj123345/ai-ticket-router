@@ -378,9 +378,11 @@ def onboarding_chat():
         result = answer_question(question, history=history, doc_filter=doc_filter)
         return jsonify(result)
     except Exception as e:
+        import traceback
+        err_detail = traceback.format_exc()
         return jsonify({
             "error":    str(e),
-            "answer":   "Sorry, I encountered an error. Please try again.",
+            "answer":   f"DEBUG ERROR — {type(e).__name__}: {e}",
             "sources":  [],
             "has_docs": False,
         }), 500
