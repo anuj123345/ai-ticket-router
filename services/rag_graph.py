@@ -4,35 +4,34 @@ RAG Graph — LangGraph-powered retrieval + generation pipeline.
 Graph nodes:
   retrieve  → semantic vector search (pgvector) with FTS fallback
             → OR Python aggregation for xlsx/csv analytical queries
-  generate  → LangChain ChatOpenAI (NVIDIA NIM) with summary memory
+  generate  → OpenAI client (NVIDIA NIM endpoint) with summary memory
   store     → persist conversation to Supabase
 
-Memory: ConversationSummaryBufferMemory compresses history > 6 turns
-into a running summary so the LLM retains long context without token overflow.
+Memory: history > 6 turns is summarised by the LLM before being sent,
+so long conversations don't blow the context window.
 """
 import os
 import re
 import json
 from typing import TypedDict, Optional
 
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from openai import OpenAI
 from langgraph.graph import StateGraph, END
 
 from models.db import get_client
 from services.doc_processor import query_embedding
 
 
-# ── LLM ──────────────────────────────────────────────────────────────────────
+# ── LLM (raw OpenAI client pointed at NVIDIA NIM) ────────────────────────────
 
-def _llm() -> ChatOpenAI:
-    return ChatOpenAI(
+def _llm() -> OpenAI:
+    return OpenAI(
         base_url=os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
         api_key=os.environ.get("NVIDIA_API_KEY", ""),
-        model=os.environ.get("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct"),
-        temperature=0.2,
-        max_tokens=900,
     )
+
+def _model() -> str:
+    return os.environ.get("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct")
 
 
 # ── Graph state ───────────────────────────────────────────────────────────────
@@ -44,7 +43,7 @@ class RAGState(TypedDict):
     doc_chunks:        list[dict]
     precomputed:       Optional[str]       # Python-aggregated result for xlsx/csv
     context:           str
-    messages:          list                # LangChain message objects
+    messages:          list[dict]          # OpenAI-format {role, content} dicts
     raw_answer:        str
     answer:            str
     sources:           list[dict]
@@ -232,10 +231,10 @@ def _python_aggregate(doc_name: str, question: str) -> Optional[str]:
 
 # ── Memory helper ─────────────────────────────────────────────────────────────
 
-def _build_memory_messages(history: list[dict], llm: ChatOpenAI) -> list:
+def _build_memory_messages(history: list[dict], llm: OpenAI) -> list[dict]:
     """
-    Convert history to LangChain messages.
-    If history > 6 turns, summarise older turns with the LLM to compress context.
+    Convert history to OpenAI-format {role, content} dicts.
+    If history > 6 turns, summarise older turns to compress context.
     """
     if not history:
         return []
@@ -243,12 +242,12 @@ def _build_memory_messages(history: list[dict], llm: ChatOpenAI) -> list:
     if len(history) <= 6:
         msgs = []
         for turn in history:
-            msgs.append(HumanMessage(content=turn["question"]))
-            msgs.append(AIMessage(content=turn["answer"]))
+            msgs.append({"role": "user",      "content": turn["question"]})
+            msgs.append({"role": "assistant", "content": turn["answer"]})
         return msgs
 
-    # Summarise older turns
-    old_turns = history[:-6]
+    # Summarise older turns to avoid context overflow
+    old_turns    = history[:-6]
     recent_turns = history[-6:]
 
     summary_prompt = (
@@ -257,15 +256,20 @@ def _build_memory_messages(history: list[dict], llm: ChatOpenAI) -> list:
         + "\n".join(f"User: {t['question']}\nAssistant: {t['answer']}" for t in old_turns)
     )
     try:
-        summary_resp = llm.invoke([HumanMessage(content=summary_prompt)])
-        summary_text = summary_resp.content
+        summary_resp = llm.chat.completions.create(
+            model=_model(),
+            messages=[{"role": "user", "content": summary_prompt}],
+            temperature=0.2,
+            max_tokens=200,
+        )
+        summary_text = summary_resp.choices[0].message.content.strip()
     except Exception:
         summary_text = f"[Earlier conversation covered {len(old_turns)} exchanges]"
 
-    msgs = [SystemMessage(content=f"Conversation summary so far: {summary_text}")]
+    msgs = [{"role": "system", "content": f"Conversation summary so far: {summary_text}"}]
     for turn in recent_turns:
-        msgs.append(HumanMessage(content=turn["question"]))
-        msgs.append(AIMessage(content=turn["answer"]))
+        msgs.append({"role": "user",      "content": turn["question"]})
+        msgs.append({"role": "assistant", "content": turn["answer"]})
     return msgs
 
 
@@ -330,21 +334,26 @@ def retrieve_node(state: RAGState) -> RAGState:
 
 
 def generate_node(state: RAGState) -> RAGState:
-    """Generate answer using LangChain ChatOpenAI with summary memory."""
+    """Generate answer using NVIDIA NIM via raw OpenAI client with summary memory."""
     llm = _llm()
 
     # Build message list: system + compressed history + current question
     memory_msgs = _build_memory_messages(state.get("history", []), llm)
 
     messages = (
-        [SystemMessage(content=SYSTEM_PROMPT)]
+        [{"role": "system", "content": SYSTEM_PROMPT}]
         + memory_msgs
-        + [HumanMessage(content=f"Context:\n{state['context']}\n\nQuestion: {state['question']}")]
+        + [{"role": "user", "content": f"Context:\n{state['context']}\n\nQuestion: {state['question']}"}]
     )
 
     try:
-        resp = llm.invoke(messages)
-        raw = resp.content.strip()
+        resp = llm.chat.completions.create(
+            model=_model(),
+            messages=messages,
+            temperature=0.2,
+            max_tokens=900,
+        )
+        raw = resp.choices[0].message.content.strip()
     except Exception as e:
         raw = f"<answer>Sorry, I encountered an error: {e}</answer>\nOUTDATED_FLAG: NO"
 
