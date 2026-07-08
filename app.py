@@ -427,8 +427,8 @@ def onboarding_upload():
     name = f.filename or "upload"
     ext  = name.rsplit(".", 1)[-1].lower() if "." in name else "txt"
 
-    if ext not in ("pdf", "docx", "txt", "md", "xlsx"):
-        return jsonify({"error": "Unsupported file type. Use PDF, DOCX, TXT, MD, or XLSX."}), 400
+    if ext not in ("pdf", "docx", "txt", "md", "xlsx", "csv"):
+        return jsonify({"error": "Unsupported file type. Use PDF, DOCX, TXT, MD, XLSX, or CSV."}), 400
 
     file_bytes = f.read()
     if len(file_bytes) > 3 * 1024 * 1024:

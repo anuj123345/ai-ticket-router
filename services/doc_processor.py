@@ -72,6 +72,22 @@ def extract_text_xlsx(file_bytes: bytes) -> str:
     return "\n\n".join(sections)
 
 
+def extract_text_csv(file_bytes: bytes) -> str:
+    """Convert CSV to natural-language sentences for RAG chunking."""
+    import csv
+    text = file_bytes.decode("utf-8", errors="replace")
+    reader = csv.DictReader(io.StringIO(text))
+    lines = []
+    headers = reader.fieldnames or []
+    if headers:
+        lines.append(f"## Data ({', '.join(headers)})")
+    for row in reader:
+        parts = [f"{k}: {v}" for k, v in row.items() if v and str(v).strip()]
+        if parts:
+            lines.append(", ".join(parts) + ".")
+    return "\n".join(lines)
+
+
 def extract_text(file_bytes: bytes, file_type: str) -> str:
     ft = file_type.lower()
     if ft == "pdf":
@@ -80,6 +96,8 @@ def extract_text(file_bytes: bytes, file_type: str) -> str:
         return extract_text_docx(file_bytes)
     elif ft in ("xlsx", "xls"):
         return extract_text_xlsx(file_bytes)
+    elif ft == "csv":
+        return extract_text_csv(file_bytes)
     else:
         return extract_text_plain(file_bytes)
 
