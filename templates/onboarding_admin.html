@@ -29,7 +29,7 @@
         <div class="ob-drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
           <div class="ob-drop-icon"><i class="bi bi-file-earmark-arrow-up"></i></div>
           <div class="ob-drop-text">Click or drag &amp; drop a file here</div>
-          <div class="ob-drop-hint">PDF, Word, Excel (.xlsx), CSV, or plain text (.txt, .md) &middot; Max 3 MB</div>
+          <div class="ob-drop-hint">PDF, Word, Excel (.xlsx), CSV, or plain text (.txt, .md) &middot; Max 4 MB</div>
           <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.md,.xlsx,.csv" style="display:none" onchange="handleFileSelect(this)" />
         </div>
 
@@ -168,8 +168,8 @@ function showPreview(file) {
   if (!['pdf','docx','txt','md','xlsx','csv'].includes(ext)) {
     showStatus('Unsupported file type. Please upload PDF, DOCX, TXT, MD, XLSX, or CSV.', 'error'); return;
   }
-  if (file.size > 3 * 1024 * 1024) {
-    showStatus('File too large. Max size is 3 MB.', 'error'); return;
+  if (file.size > 4 * 1024 * 1024) {
+    showStatus('File too large. Max size is 4 MB.', 'error'); return;
   }
   selectedFile = file;
   document.getElementById('previewName').textContent = file.name;

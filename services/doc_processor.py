@@ -1,11 +1,62 @@
 """
-Document Processor — parses PDF, DOCX, and TXT/MD files,
-chunks the text, and stores chunks in Supabase for full-text search.
+Document Processor — parses PDF, DOCX, TXT/MD, XLSX, CSV files,
+chunks the text, generates NVIDIA embeddings (pgvector), and stores
+in Supabase for semantic + full-text search fallback.
 All processing happens in-memory (no disk writes — Vercel compatible).
 """
 import io
+import os
 import re
 from models.db import get_client
+
+
+# ── Embeddings ───────────────────────────────────────────────────────────────
+
+def generate_embeddings(texts: list[str]) -> list[list[float] | None]:
+    """
+    Generate 1024-dim embeddings via NVIDIA NIM (nvidia/nv-embedqa-e5-v5).
+    Batches up to 50 texts per call. Returns None per item on error so upload
+    still succeeds (FTS fallback remains available).
+    """
+    from openai import OpenAI
+    client = OpenAI(
+        base_url=os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
+        api_key=os.environ.get("NVIDIA_API_KEY", ""),
+    )
+    results: list[list[float] | None] = []
+    for i in range(0, len(texts), 50):
+        batch = texts[i:i + 50]
+        try:
+            resp = client.embeddings.create(
+                model="nvidia/nv-embedqa-e5-v5",
+                input=batch,
+                encoding_format="float",
+                extra_body={"input_type": "passage", "truncate": "END"},
+            )
+            ordered = sorted(resp.data, key=lambda x: x.index)
+            results.extend([item.embedding for item in ordered])
+        except Exception:
+            results.extend([None] * len(batch))
+    return results
+
+
+def query_embedding(text: str) -> list[float] | None:
+    """Generate a query-side embedding for semantic search."""
+    from openai import OpenAI
+    client = OpenAI(
+        base_url=os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
+        api_key=os.environ.get("NVIDIA_API_KEY", ""),
+    )
+    try:
+        resp = client.embeddings.create(
+            model="nvidia/nv-embedqa-e5-v5",
+            input=[text],
+            encoding_format="float",
+            extra_body={"input_type": "query", "truncate": "END"},
+        )
+        return resp.data[0].embedding
+    except Exception:
+        return None
 
 
 # ── Text extraction ──────────────────────────────────────────────────────────
@@ -33,29 +84,18 @@ def extract_text_plain(file_bytes: bytes) -> str:
 
 
 def extract_text_xlsx(file_bytes: bytes) -> str:
-    """
-    Convert a structured Excel file to natural-language text for RAG chunking.
-    Each sheet becomes a section. Each row becomes a sentence using
-    'Column: Value, Column: Value' format so the LLM can answer questions
-    about specific fields naturally.
-    """
     import openpyxl
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
     sections = []
-
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
         rows = list(ws.iter_rows(values_only=True))
         if not rows:
             continue
-
-        # First non-empty row = headers
         headers = [str(h).strip() if h is not None else f"Column{i+1}"
                    for i, h in enumerate(rows[0])]
-
         lines = [f"## {sheet_name}"]
         for row in rows[1:]:
-            # Skip fully empty rows
             if all(cell is None or str(cell).strip() == "" for cell in row):
                 continue
             parts = []
@@ -64,16 +104,13 @@ def extract_text_xlsx(file_bytes: bytes) -> str:
                     parts.append(f"{header}: {cell}")
             if parts:
                 lines.append(", ".join(parts) + ".")
-
         if len(lines) > 1:
             sections.append("\n".join(lines))
-
     wb.close()
     return "\n\n".join(sections)
 
 
 def extract_text_csv(file_bytes: bytes) -> str:
-    """Convert CSV to natural-language sentences for RAG chunking."""
     import csv
     text = file_bytes.decode("utf-8", errors="replace")
     reader = csv.DictReader(io.StringIO(text))
@@ -105,54 +142,38 @@ def extract_text(file_bytes: bytes, file_type: str) -> str:
 # ── Chunking ─────────────────────────────────────────────────────────────────
 
 def chunk_text(text: str, chunk_size: int = 350, overlap: int = 100) -> list[str]:
-    """
-    Split text into overlapping chunks, prepending the nearest section header
-    to each chunk so the LLM always knows which section it's reading.
-    """
-    # Normalise whitespace
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r" {2,}", " ", text)
-
-    # Detect markdown / ALL-CAPS headers for context injection
     header_pattern = re.compile(r'^(#{1,3} .+|[A-Z][A-Z &/\-]{4,})$', re.MULTILINE)
-
-    # Split into lines; track current section header
     lines = text.splitlines()
     current_header = ""
-    annotated_words = []  # (word, header_at_this_point)
-
+    annotated_words = []
     for line in lines:
         stripped = line.strip()
         if header_pattern.match(stripped) and len(stripped) < 80:
             current_header = stripped.lstrip('#').strip()
         for word in stripped.split():
             annotated_words.append((word, current_header))
-
     chunks = []
     start = 0
     while start < len(annotated_words):
         end = min(start + chunk_size, len(annotated_words))
         segment_words  = [w for w, _ in annotated_words[start:end]]
         segment_header = annotated_words[start][1]
-
         chunk_body = " ".join(segment_words)
         if len(chunk_body.strip()) > 40:
-            # Prepend section header so retrieval knows the topic
             if segment_header and not chunk_body.startswith(segment_header):
                 chunk = f"[{segment_header}]\n{chunk_body}"
             else:
                 chunk = chunk_body
             chunks.append(chunk)
-
         start += chunk_size - overlap
-
     return chunks
 
 
 # ── Supabase storage ─────────────────────────────────────────────────────────
 
 def store_document(name: str, file_type: str, size_bytes: int) -> int:
-    """Insert document metadata and return its ID."""
     client = get_client()
     resp = client.table("documents").insert({
         "name":       name,
@@ -163,24 +184,33 @@ def store_document(name: str, file_type: str, size_bytes: int) -> int:
 
 
 def store_chunks(document_id: int, document_name: str, chunks: list[str]):
-    """Bulk-insert text chunks into doc_chunks."""
+    """
+    Bulk-insert chunks with embeddings into doc_chunks.
+    Generates embeddings in batches; falls back gracefully if API fails.
+    """
     client = get_client()
-    rows = [
-        {
+
+    # Generate embeddings for all chunks
+    embeddings = generate_embeddings(chunks)
+
+    rows = []
+    for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
+        row = {
             "document_id":   document_id,
             "document_name": document_name,
             "chunk_index":   i,
             "content":       chunk,
         }
-        for i, chunk in enumerate(chunks)
-    ]
-    # Insert in batches of 100 to stay within Supabase request limits
-    for i in range(0, len(rows), 100):
-        client.table("doc_chunks").insert(rows[i:i+100]).execute()
+        if emb is not None:
+            row["embedding"] = emb
+        rows.append(row)
+
+    # Insert in batches of 50 (embeddings are large)
+    for i in range(0, len(rows), 50):
+        client.table("doc_chunks").insert(rows[i:i + 50]).execute()
 
 
 def delete_document(document_id: int):
-    """Delete a document and all its chunks (CASCADE handles chunks)."""
     client = get_client()
     client.table("documents").delete().eq("id", document_id).execute()
 
@@ -189,7 +219,7 @@ def delete_document(document_id: int):
 
 def process_and_store(filename: str, file_bytes: bytes, file_type: str) -> dict:
     """
-    Full pipeline: extract → chunk → store.
+    Full pipeline: extract → chunk → embed → store.
     Returns {"document_id": int, "chunks": int, "name": str}
     """
     text = extract_text(file_bytes, file_type)
@@ -215,7 +245,6 @@ def get_all_documents() -> list[dict]:
         .execute()
         .data or []
     )
-    # Attach chunk count for each document
     for doc in docs:
         count_resp = (
             client.table("doc_chunks")

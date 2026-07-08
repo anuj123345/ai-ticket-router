@@ -17,5 +17,10 @@
   ],
   "env": {
     "DB_PATH": "/tmp/tickets.db"
+  },
+  "functions": {
+    "app.py": {
+      "maxDuration": 30
+    }
   }
 }
