@@ -19,10 +19,9 @@ from typing import Optional
 from openai import OpenAI
 
 from models.db import get_client
-from services.doc_processor import query_embedding
 
 
-# ── LLM ──────────────────────────────────────────────────────────────────────
+# ── LLM + embeddings ─────────────────────────────────────────────────────────
 
 def _llm() -> OpenAI:
     return OpenAI(
@@ -32,6 +31,23 @@ def _llm() -> OpenAI:
 
 def _model() -> str:
     return os.environ.get("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct")
+
+def _query_embedding(text: str) -> list | None:
+    """Generate a query-side embedding for semantic search via NVIDIA NIM."""
+    try:
+        client = OpenAI(
+            base_url=os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
+            api_key=os.environ.get("NVIDIA_API_KEY", ""),
+        )
+        resp = client.embeddings.create(
+            model="nvidia/nv-embedqa-e5-v5",
+            input=[text],
+            encoding_format="float",
+            extra_body={"input_type": "query", "truncate": "END"},
+        )
+        return resp.data[0].embedding
+    except Exception:
+        return None
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -77,7 +93,7 @@ OUTDATED_REASON: reason if applicable"""
 
 def _semantic_search(question: str, doc_filter: Optional[str] = None, k: int = 10) -> list:
     """pgvector cosine similarity via match_doc_chunks RPC."""
-    emb = query_embedding(question)
+    emb = _query_embedding(question)
     if emb is None:
         return []
     try:
