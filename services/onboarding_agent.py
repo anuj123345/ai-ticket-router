@@ -199,11 +199,14 @@ ANALYTICAL_PATTERNS = re.compile(
 
 STRUCTURED_EXTS = {'xlsx', 'xls', 'csv'}
 
-_AGGREGATE_STOP = {
-    'give', 'have', 'what', 'from', 'with', 'that', 'this', 'they', 'been',
-    'which', 'percent', 'percentage', 'student', 'students', 'marked', 'section',
-    'column', 'who', 'are', 'the', 'you', 'sheet', 'excel', 'dropout', 'data',
-    'file', 'already', 'uploaded', 'document', 'many', 'number', 'count', 'total',
+# Words to strip from the question before extracting data search terms
+_DATA_STOP = {
+    'give', 'help', 'show', 'list', 'find', 'tell', 'get', 'need', 'want',
+    'have', 'what', 'from', 'with', 'that', 'this', 'they', 'been', 'which',
+    'percent', 'percentage', 'who', 'are', 'the', 'you', 'already', 'uploaded',
+    'many', 'number', 'count', 'total', 'about', 'for', 'and', 'now', 'please',
+    'can', 'could', 'would', 'information', 'data', 'file', 'sheet', 'excel',
+    'document', 'dropout', 'using', 'based',
 }
 
 
@@ -211,11 +214,14 @@ def _is_analytical(question: str) -> bool:
     return bool(ANALYTICAL_PATTERNS.search(question))
 
 
-def _python_aggregate(doc_name: str, question: str) -> str | None:
+def _query_structured_doc(doc_name: str, question: str) -> str | None:
     """
-    For analytical queries on xlsx/csv: fetch ALL chunk content, parse individual
-    data rows in Python, count matches, and return a pre-computed summary string.
-    This avoids sending hundreds of chunks to the LLM (context overflow).
+    For any query targeting an xlsx/csv doc:
+    - Fetch ALL chunk content from the document
+    - Extract individual data rows in Python
+    - Filter rows that match the question's key terms
+    - Return a compact result (count + matching rows) instead of raw chunks
+    This avoids both context overflow AND missing data due to top-N retrieval limits.
     """
     client = get_client()
     try:
@@ -231,7 +237,7 @@ def _python_aggregate(doc_name: str, question: str) -> str | None:
 
         full_text = "\n".join(c.get("content", "") for c in resp.data)
 
-        # Each data row is one line; skip ## section headers and [bracket] labels
+        # Each Excel row becomes one line; skip ## headers and [section] labels
         data_lines = [
             ln.strip() for ln in full_text.splitlines()
             if ln.strip()
@@ -242,32 +248,43 @@ def _python_aggregate(doc_name: str, question: str) -> str | None:
         if total == 0:
             return None
 
-        # Extract meaningful search words from the question
+        # Extract meaningful data-search terms from the question
         words = [
             w.lower() for w in re.findall(r'\b\w{3,}\b', question.lower())
-            if w.lower() not in _AGGREGATE_STOP
+            if w.lower() not in _DATA_STOP
         ]
 
-        # Try strict match (all top words present in line)
-        strict = [ln for ln in data_lines if all(w in ln.lower() for w in words[:4])]
-        if strict:
-            matched, label = strict, "strict"
-        else:
-            # Broad match (any word)
-            matched = [ln for ln in data_lines if any(w in ln.lower() for w in words[:4])]
-            label = "broad"
+        # Strict match first (all terms in the same line)
+        matched = [ln for ln in data_lines if all(w in ln.lower() for w in words[:5])]
+        if not matched:
+            # Broad match (any term)
+            matched = [ln for ln in data_lines if any(w in ln.lower() for w in words[:5])]
 
         match_count = len(matched)
         pct = round(match_count / total * 100, 2) if total > 0 else 0
-        samples = "\n".join(matched[:5])
 
-        return (
-            f"=== PRE-COMPUTED ANALYSIS: '{doc_name}' ===\n"
-            f"Total data rows in file: {total}\n"
-            f"Rows matching '{' + '.join(words[:4])}' ({label} match): {match_count}\n"
-            f"Percentage: {pct}%\n\n"
-            f"Sample matching rows:\n{samples}"
-        )
+        analytical = _is_analytical(question)
+
+        if analytical:
+            # For count/percentage questions: return summary + sample rows
+            samples = "\n".join(matched[:10])
+            return (
+                f"=== DATA ANALYSIS: '{doc_name}' ===\n"
+                f"Total records: {total}\n"
+                f"Matching records (search terms: {', '.join(words[:5])}): {match_count}\n"
+                f"Percentage: {pct}%\n\n"
+                f"Sample matching records:\n{samples}"
+            )
+        else:
+            # For listing/detail questions: return the actual matching rows (capped at 60)
+            rows_text = "\n".join(matched[:60])
+            overflow = f"\n... and {match_count - 60} more records." if match_count > 60 else ""
+            return (
+                f"=== DATA FROM '{doc_name}' ===\n"
+                f"Found {match_count} matching records out of {total} total "
+                f"(search terms: {', '.join(words[:5])}):\n\n"
+                f"{rows_text}{overflow}"
+            )
     except Exception:
         return None
 
@@ -397,20 +414,20 @@ def answer_question(question: str, history: list[dict] | None = None) -> dict:
     doc_chunks  = search_doc_chunks(question)
     verified_qa = search_verified_qa(question)
 
-    # For analytical questions on xlsx/csv files, aggregate in Python first
-    # so the LLM only receives a concise summary (avoids context overflow)
+    # For ANY query that matches an xlsx/csv file: do Python-level filtering
+    # instead of sending raw chunks to the LLM (avoids context overflow and
+    # missing data due to top-N retrieval limits).
     precomputed = None
-    if _is_analytical(question) and doc_chunks:
+    if doc_chunks:
         structured_doc = next(
             (c['document_name'] for c in doc_chunks
              if c.get('document_name', '').rsplit('.', 1)[-1].lower() in STRUCTURED_EXTS),
             None
         )
         if structured_doc:
-            precomputed = _python_aggregate(structured_doc, question)
+            precomputed = _query_structured_doc(structured_doc, question)
 
     if precomputed:
-        # Build context from pre-computed summary + any verified Q&A
         qa_ctx = build_context([], verified_qa) if verified_qa else ""
         context = (qa_ctx + "\n\n" + precomputed).strip()
     else:
