@@ -1,16 +1,14 @@
 """
-RAG pipeline — semantic vector search + summary memory + structured aggregation.
+RAG pipeline v3 — no LangGraph, no doc_processor dependency.
 
-Pipeline (sequential, no framework dependency):
-  retrieve  → pgvector semantic search → FTS fallback → ILIKE fallback
-            → OR Python aggregation for xlsx/csv files
-  generate  → NVIDIA NIM (OpenAI-compatible) with summary memory compression
-  parse     → extract answer + metadata from LLM response
-  store     → persist to Supabase
-
-Memory: conversations > 6 turns are summarised first so long sessions
-don't overflow the context window.
+Pipeline:
+  retrieve  -> pgvector semantic search -> FTS fallback -> ILIKE fallback
+            -> OR Python aggregation for xlsx/csv
+  generate  -> NVIDIA NIM (OpenAI-compatible) with summary memory compression
+  parse     -> extract answer + metadata from LLM response
+  store     -> persist to Supabase
 """
+# v3 - _query_embedding fully inlined, zero cross-module imports
 import os
 import re
 import json
@@ -21,7 +19,9 @@ from openai import OpenAI
 from models.db import get_client
 
 
-# ── LLM + embeddings ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# LLM helpers
+# ---------------------------------------------------------------------------
 
 def _llm() -> OpenAI:
     return OpenAI(
@@ -29,11 +29,13 @@ def _llm() -> OpenAI:
         api_key=os.environ.get("NVIDIA_API_KEY", ""),
     )
 
+
 def _model() -> str:
     return os.environ.get("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct")
 
-def _query_embedding(text: str) -> list | None:
-    """Generate a query-side embedding for semantic search via NVIDIA NIM."""
+
+def _query_embedding(text: str):
+    """Generate a query-side embedding via NVIDIA NIM. Fully inlined - no external import."""
     try:
         client = OpenAI(
             base_url=os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
@@ -50,7 +52,9 @@ def _query_embedding(text: str) -> list | None:
         return None
 
 
-# ── Constants ─────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 
 STRUCTURED_EXTS = {"xlsx", "xls", "csv"}
 
@@ -75,8 +79,8 @@ Instructions:
 - Answer using ONLY the provided context. Do not invent information.
 - If context is insufficient, say: "I couldn't find this in the available documentation."
 - Be concise. Use bullet points for multi-step processes.
-- For structured data (Excel/CSV): lead with the key stat (e.g. "Found 14 of 200 — 7%"), then a brief sample. Do NOT dump the full list unless a FULL MATCHING RECORDS section is provided. End with "Would you like me to list all N records?"
-- For count/percentage questions: use pre-computed numbers from context — do not recalculate.
+- For structured data (Excel/CSV): lead with the key stat (e.g. "Found 14 of 200 -- 7%"), then a brief sample. Do NOT dump the full list unless a FULL MATCHING RECORDS section is provided. End with "Would you like me to list all N records?"
+- For count/percentage questions: use pre-computed numbers from context -- do not recalculate.
 - At the end include:
   OUTDATED_FLAG: YES or NO
   OUTDATED_REASON: (one sentence, only if YES)
@@ -89,7 +93,9 @@ OUTDATED_FLAG: YES/NO
 OUTDATED_REASON: reason if applicable"""
 
 
-# ── Retrieval ─────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Retrieval
+# ---------------------------------------------------------------------------
 
 def _semantic_search(question: str, doc_filter: Optional[str] = None, k: int = 10) -> list:
     """pgvector cosine similarity via match_doc_chunks RPC."""
@@ -121,9 +127,9 @@ def _fts_fallback(question: str, doc_filter: Optional[str] = None, k: int = 10) 
 
 
 def _ilike_fallback(question: str, doc_filter: Optional[str] = None, k: int = 8) -> list:
-    """ILIKE keyword search — last resort."""
-    stop = {"what","is","the","how","do","i","can","get","my","a","an","are",
-            "to","for","of","in","on","at","and","or"}
+    """ILIKE keyword search -- last resort."""
+    stop = {"what", "is", "the", "how", "do", "i", "can", "get", "my", "a", "an", "are",
+            "to", "for", "of", "in", "on", "at", "and", "or"}
     words = [w for w in re.findall(r"\b[a-zA-Z]\w+\b", question.lower())
              if w not in stop and len(w) > 3]
     seen, results = set(), []
@@ -146,7 +152,7 @@ def _ilike_fallback(question: str, doc_filter: Optional[str] = None, k: int = 8)
 
 
 def _retrieve_chunks(question: str, doc_filter: Optional[str]) -> list:
-    """Semantic → FTS → ILIKE, deduplicated."""
+    """Semantic -> FTS -> ILIKE, deduplicated."""
     chunks = _semantic_search(question, doc_filter)
     if not chunks:
         chunks = _fts_fallback(question, doc_filter)
@@ -161,7 +167,7 @@ def _retrieve_chunks(question: str, doc_filter: Optional[str]) -> list:
 
 
 def _python_aggregate(doc_name: str, question: str) -> Optional[str]:
-    """Python-level row counting for xlsx/csv — avoids context overflow."""
+    """Python-level row counting for xlsx/csv -- avoids context overflow."""
     try:
         resp = (get_client().table("doc_chunks")
                 .select("content")
@@ -170,7 +176,7 @@ def _python_aggregate(doc_name: str, question: str) -> Optional[str]:
                 .execute())
         if not resp.data:
             return None
-        full_text  = "\n".join(c.get("content", "") for c in resp.data)
+        full_text = "\n".join(c.get("content", "") for c in resp.data)
         data_lines = [
             ln.strip() for ln in full_text.splitlines()
             if ln.strip() and not ln.strip().startswith("##") and not ln.strip().startswith("[")
@@ -186,9 +192,9 @@ def _python_aggregate(doc_name: str, question: str) -> Optional[str]:
         if not matched:
             matched = [ln for ln in data_lines if any(w in ln.lower() for w in words[:5])]
 
-        pct         = round(len(matched) / total * 100, 2) if total > 0 else 0
-        wants_list  = bool(LIST_RE.search(question))
-        summary     = (
+        pct = round(len(matched) / total * 100, 2) if total > 0 else 0
+        wants_list = bool(LIST_RE.search(question))
+        summary = (
             f"=== DATA SUMMARY: '{doc_name}' ===\n"
             f"Total records: {total}\n"
             f"Matching records: {len(matched)} ({pct}%)\n"
@@ -197,24 +203,23 @@ def _python_aggregate(doc_name: str, question: str) -> Optional[str]:
 
         if wants_list:
             rows_text = "\n".join(matched[:60])
-            overflow  = f"\n[...and {len(matched)-60} more]" if len(matched) > 60 else ""
+            overflow = f"\n[...and {len(matched) - 60} more]" if len(matched) > 60 else ""
             return f"{summary}\n\n=== FULL MATCHING RECORDS ===\n{rows_text}{overflow}"
         else:
             sample = "\n".join(matched[:5])
-            offer  = (f"\n\nTell the user: {len(matched)} records found. Offer the full list."
-                      if len(matched) > 5 else "")
+            offer = (f"\n\nTell the user: {len(matched)} records found. Offer the full list."
+                     if len(matched) > 5 else "")
             return f"{summary}\n\n=== SAMPLE (first 5 of {len(matched)}) ===\n{sample}{offer}"
     except Exception:
         return None
 
 
-# ── Memory ────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Memory
+# ---------------------------------------------------------------------------
 
 def _build_messages(history: list, llm: OpenAI) -> list:
-    """
-    Convert history list to OpenAI message dicts.
-    Histories > 6 turns get the older portion summarised first.
-    """
+    """Convert history to OpenAI message dicts. Histories > 6 turns get summarised."""
     if not history:
         return []
 
@@ -250,7 +255,9 @@ def _build_messages(history: list, llm: OpenAI) -> list:
     return msgs
 
 
-# ── Parse ─────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Parse
+# ---------------------------------------------------------------------------
 
 def _parse_response(raw: str) -> dict:
     answer            = raw
@@ -258,8 +265,8 @@ def _parse_response(raw: str) -> dict:
     outdated_reason   = None
 
     if "<answer>" in raw and "</answer>" in raw:
-        start = raw.index("<answer>") + len("<answer>")
-        end   = raw.rfind("</answer>")
+        start  = raw.index("<answer>") + len("<answer>")
+        end    = raw.rfind("</answer>")
         answer = raw[start:end].strip() if end > start else re.sub(r"</?answer>", "", raw).strip()
 
     if "OUTDATED_FLAG: YES" in raw.upper():
@@ -282,17 +289,19 @@ def _parse_response(raw: str) -> dict:
     }
 
 
-# ── Main entry point ──────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
-def run_rag(question: str, history: list | None = None,
-            doc_filter: str | None = None) -> dict:
+def run_rag(question: str, history: list = None,
+            doc_filter: str = None) -> dict:
     """
-    Full RAG pipeline: retrieve → generate → parse → store.
+    Full RAG pipeline: retrieve -> generate -> parse -> store.
     Returns {answer, sources, possibly_outdated, outdated_reason, conversation_id, has_docs}
     """
     history = history or []
 
-    # ── 1. Retrieve ───────────────────────────────────────────────────────────
+    # 1. Retrieve
     target_structured = (
         doc_filter
         if doc_filter and doc_filter.rsplit(".", 1)[-1].lower() in STRUCTURED_EXTS
@@ -306,8 +315,8 @@ def run_rag(question: str, history: list | None = None,
         precomputed = _python_aggregate(target_structured, question)
         doc_chunks  = _retrieve_chunks(question, doc_filter)[:3]
     else:
-        doc_chunks  = _retrieve_chunks(question, doc_filter)
-        struct_doc  = next(
+        doc_chunks = _retrieve_chunks(question, doc_filter)
+        struct_doc = next(
             (c["document_name"] for c in doc_chunks
              if c.get("document_name", "").rsplit(".", 1)[-1].lower() in STRUCTURED_EXTS),
             None,
@@ -330,11 +339,11 @@ def run_rag(question: str, history: list | None = None,
         if name not in seen:
             seen.add(name)
             sources.append({"document_name": name,
-                            "excerpt": c.get("content", "")[:220] + "…"})
+                            "excerpt": c.get("content", "")[:220] + "..."})
 
     has_docs = bool(doc_chunks) or bool(precomputed)
 
-    # ── 2. Generate ───────────────────────────────────────────────────────────
+    # 2. Generate
     llm      = _llm()
     messages = (
         [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -350,13 +359,13 @@ def run_rag(question: str, history: list | None = None,
             max_tokens=900,
         )
         raw = resp.choices[0].message.content.strip()
-    except Exception as e:
-        raw = f"<answer>Sorry, I encountered an error: {e}</answer>\nOUTDATED_FLAG: NO"
+    except Exception as exc:
+        raw = f"<answer>Sorry, I encountered an error: {exc}</answer>\nOUTDATED_FLAG: NO"
 
-    # ── 3. Parse ──────────────────────────────────────────────────────────────
+    # 3. Parse
     parsed = _parse_response(raw)
 
-    # ── 4. Store ──────────────────────────────────────────────────────────────
+    # 4. Store
     conv_id = None
     try:
         r = get_client().table("conversations").insert({
