@@ -5,6 +5,7 @@
       "src": "app.py",
       "use": "@vercel/python",
       "config": {
+        "maxDuration": 30,
         "includeFiles": ["templates/**", "static/**", "knowledge_base/**", "models/**", "services/**"]
       }
     }
@@ -17,10 +18,5 @@
   ],
   "env": {
     "DB_PATH": "/tmp/tickets.db"
-  },
-  "functions": {
-    "app.py": {
-      "maxDuration": 30
-    }
   }
 }
