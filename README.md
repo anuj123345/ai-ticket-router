@@ -3,7 +3,7 @@
 > The operating system for modern support teams.
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-ai--ticket--router.vercel.app-7367F0?style=flat-square&logo=vercel)](https://ai-ticket-router.vercel.app)
-[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![Flask](https://img.shields.io/badge/Flask-3.x-000000?style=flat-square&logo=flask)](https://flask.palletsprojects.com)
 [![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?style=flat-square&logo=supabase)](https://supabase.com)
 [![NVIDIA NIM](https://img.shields.io/badge/NVIDIA-NIM-76B900?style=flat-square&logo=nvidia)](https://build.nvidia.com)
@@ -11,9 +11,9 @@
 
 ---
 
-Solace is a full-stack AI-powered enterprise support platform that automates ticket routing, enables natural-language data querying, and delivers a RAG-based onboarding assistant — all with a human-in-the-loop review layer before anything reaches your team.
+Solace is a full-stack AI-powered enterprise support platform that automates ticket routing, enables natural-language data querying, and delivers a RAG-based Smart Search assistant — all with a human-in-the-loop review layer before anything reaches your team.
 
-Built as a production-grade portfolio project demonstrating end-to-end AI engineering: LLM classification, retrieval-augmented generation, natural language to SQL, and a modern Flask + Supabase backend deployed on Vercel.
+Built as a production-grade portfolio project demonstrating end-to-end AI engineering: LLM classification, retrieval-augmented generation (RAG), natural language to SQL, pgvector semantic search, and a modern Flask + Supabase backend deployed on Vercel.
 
 ---
 
@@ -35,8 +35,8 @@ Ask questions about your ticket data in plain English:
 
 The AI writes the SQL, runs it against the live database, auto-generates a chart, and explains the result in plain language. No SQL knowledge required.
 
-### 🎓 Onboarding Assistant
-A chat interface grounded in your company's uploaded documents (PDF, DOCX, TXT, MD). New hires ask anything about benefits, policies, or procedures and get cited, accurate answers. Admins can upload docs and verify Q&A pairs to improve quality over time.
+### 🔍 Smart Search
+A RAG-powered chat interface grounded in your company's uploaded documents (PDF, DOCX, TXT, MD, XLSX, CSV). Employees ask anything about policies, procedures, or data and get cited, accurate answers backed by pgvector semantic search with FTS and keyword fallbacks. Admins upload docs via a management panel; users can thumbs-up/down answers and flag outdated content. Chat history persists across page refreshes within the same session.
 
 ---
 
@@ -44,14 +44,15 @@ A chat interface grounded in your company's uploaded documents (PDF, DOCX, TXT, 
 
 | Layer | Technology |
 |---|---|
-| Backend | Python 3.11, Flask 3.x |
-| AI / LLM | NVIDIA NIM — `meta/llama-3.1-70b-instruct` |
-| Embeddings | NVIDIA NIM — `nvidia/nv-embedqa-e5-v5` |
-| Database | Supabase (PostgreSQL + pgvector) |
+| Backend | Python 3.12, Flask 3.x |
+| AI / LLM | NVIDIA NIM — `meta/llama-3.1-8b-instruct` |
+| Embeddings | NVIDIA NIM — `nvidia/nv-embedqa-e5-v5` (1024-dim) |
+| Vector Search | Supabase pgvector — cosine similarity via `match_doc_chunks` RPC |
+| Database | Supabase (PostgreSQL) |
 | Frontend | Vanilla HTML/CSS/JS, Bootstrap 5, Chart.js |
 | Deployment | Vercel (serverless Python) |
 | Auth | Session-based with bcrypt password hashing |
-| File Processing | PyPDF2, python-docx |
+| File Processing | pypdf, python-docx, openpyxl |
 
 ---
 
@@ -61,16 +62,16 @@ A chat interface grounded in your company's uploaded documents (PDF, DOCX, TXT, 
 ┌─────────────────────────────────────────────────────────┐
 │                    Flask App (app.py)                   │
 │                                                         │
-│  POST /submit   →  classifier.py  →  response_gen.py   │
-│  POST /ops/query →  nl_query.py                         │
-│  POST /onboarding/chat → onboarding_agent.py            │
+│  POST /submit        →  classifier.py  →  response_gen  │
+│  POST /ops/query     →  nl_query.py                     │
+│  POST /onboarding/chat → onboarding_agent → rag_graph   │
 └──────────────────────┬──────────────────────────────────┘
                        │
            ┌───────────┴───────────┐
            │                       │
     NVIDIA NIM API           Supabase (PostgreSQL)
-    LLM + Embeddings         tickets · users · docs
-                             chunks (pgvector)
+    LLM + Embeddings         tickets · users · documents
+                             doc_chunks (pgvector 1024-dim)
                              conversations · feedback
 ```
 
@@ -79,18 +80,18 @@ A chat interface grounded in your company's uploaded documents (PDF, DOCX, TXT, 
 | File | Responsibility |
 |---|---|
 | `classifier.py` | Sends ticket to LLM, parses structured JSON for dept/priority/confidence/reasoning |
-| `rag.py` | Chunks documents, generates NVIDIA embeddings, stores in pgvector, retrieves top-k at query time |
 | `response_gen.py` | Combines RAG context + ticket metadata to draft a personalized reply |
-| `nl_query.py` | Converts natural language → safe SQL via LLM, runs query, generates chart config + plain-English summary |
-| `doc_processor.py` | Parses PDF/DOCX/TXT/MD into chunks and stores embeddings |
-| `onboarding_agent.py` | RAG-based Q&A with citation extraction and verified Q&A promotion |
+| `nl_query.py` | Converts natural language → safe SQL via LLM, runs query, generates chart config |
+| `doc_processor.py` | Parses PDF/DOCX/TXT/MD/XLSX/CSV into chunks and generates NVIDIA embeddings |
+| `rag_graph.py` | Sequential RAG pipeline: pgvector semantic search → FTS fallback → ILIKE fallback → Python aggregation for structured data, LLM generation with summary memory compression |
+| `onboarding_agent.py` | Thin wrapper that delegates to `rag_graph.run_rag()` |
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
-- Python 3.11+
+- Python 3.12+
 - A [Supabase](https://supabase.com) project with `pgvector` enabled
 - An [NVIDIA NIM](https://build.nvidia.com) API key
 
@@ -114,6 +115,8 @@ Create a `.env` file in `ticket-router/`:
 ```env
 # NVIDIA NIM
 NVIDIA_API_KEY=your_nvidia_nim_api_key
+NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
+NVIDIA_MODEL=meta/llama-3.1-8b-instruct
 
 # Supabase
 SUPABASE_URL=https://your-project.supabase.co
@@ -165,31 +168,34 @@ create table users (
   created_at timestamptz default now()
 );
 
--- Documents (onboarding knowledge base)
+-- Documents (Smart Search knowledge base)
 create table documents (
   id          bigint primary key generated always as identity,
   name        text not null,
-  type        text not null,
-  chunk_count int default 0,
+  file_type   text not null,
+  size_bytes  int,
   created_at  timestamptz default now()
 );
 
--- Chunks with vector embeddings
-create table chunks (
-  id          bigint primary key generated always as identity,
-  document_id bigint references documents(id) on delete cascade,
-  content     text not null,
-  embedding   vector(1024),
-  created_at  timestamptz default now()
+-- Chunks with 1024-dim pgvector embeddings
+create table doc_chunks (
+  id            bigint primary key generated always as identity,
+  document_id   bigint references documents(id) on delete cascade,
+  document_name text,
+  chunk_index   int,
+  content       text not null,
+  embedding     vector(1024),
+  created_at    timestamptz default now()
 );
 
--- Conversations (onboarding chat history)
+-- Conversations (Smart Search chat history)
 create table conversations (
-  id         bigint primary key generated always as identity,
-  question   text not null,
-  answer     text not null,
-  sources    jsonb,
-  created_at timestamptz default now()
+  id                 bigint primary key generated always as identity,
+  question           text not null,
+  answer             text not null,
+  sources            jsonb,
+  is_outdated_flagged boolean default false,
+  created_at         timestamptz default now()
 );
 
 -- Feedback (thumbs up/down + flagging)
@@ -202,18 +208,47 @@ create table feedback (
   created_at      timestamptz default now()
 );
 
--- Similarity search function
-create or replace function match_chunks(
-  query_embedding vector(1024),
-  match_count     int default 5
+-- pgvector similarity search RPC
+create or replace function match_doc_chunks(
+  query_embedding   vector(1024),
+  match_threshold   float default 0.3,
+  match_count       int   default 10,
+  doc_name_filter   text  default null
 )
-returns table (id bigint, content text, similarity float)
+returns table (
+  id            bigint,
+  document_id   bigint,
+  document_name text,
+  content       text,
+  similarity    float
+)
 language sql stable as $$
-  select id, content,
+  select
+    id, document_id, document_name, content,
     1 - (embedding <=> query_embedding) as similarity
-  from chunks
+  from doc_chunks
+  where
+    1 - (embedding <=> query_embedding) >= match_threshold
+    and (doc_name_filter is null or document_name = doc_name_filter)
   order by embedding <=> query_embedding
   limit match_count;
+$$;
+
+-- Full-text search fallback RPC
+create or replace function search_docs(
+  query_text   text,
+  max_results  int default 10
+)
+returns table (
+  id            bigint,
+  document_name text,
+  content       text
+)
+language sql stable as $$
+  select id, document_name, content
+  from doc_chunks
+  where to_tsvector('english', content) @@ plainto_tsquery('english', query_text)
+  limit max_results;
 $$;
 ```
 
@@ -234,18 +269,16 @@ ticket-router/
 ├── app.py                    # Flask app — all routes
 ├── requirements.txt
 ├── vercel.json               # Vercel serverless config
-├── api/
-│   └── index.py              # Vercel entry point (wraps Flask)
 ├── models/
 │   ├── auth.py               # User CRUD + bcrypt hashing
-│   └── db.py                 # Supabase client, ticket CRUD, stats
+│   └── db.py                 # Supabase client + ticket CRUD
 ├── services/
 │   ├── classifier.py         # LLM ticket classification
 │   ├── response_gen.py       # RAG-augmented response drafting
-│   ├── rag.py                # Embedding + pgvector retrieval
 │   ├── nl_query.py           # NL → SQL pipeline
-│   ├── doc_processor.py      # Document chunking + embedding
-│   └── onboarding_agent.py   # RAG Q&A with feedback loop
+│   ├── doc_processor.py      # Document chunking + NVIDIA embeddings (PDF/DOCX/XLSX/CSV)
+│   ├── rag_graph.py          # RAG pipeline: semantic → FTS → ILIKE → LLM
+│   └── onboarding_agent.py   # Delegates to rag_graph.run_rag()
 ├── static/
 │   └── style.css             # Global design system
 ├── knowledge_base/           # Seed docs for RAG
@@ -258,7 +291,7 @@ ticket-router/
     ├── review.html           # Human-in-the-loop review
     ├── dashboard.html        # Ticket management
     ├── ops_dashboard.html    # NL-to-SQL analytics
-    ├── onboarding.html       # Employee chat UI
+    ├── onboarding.html       # Smart Search chat UI
     ├── onboarding_admin.html # Document upload panel
     ├── use_cases.html        # Public use cases page
     ├── privacy.html
@@ -270,13 +303,23 @@ ticket-router/
 
 ## Deploying to Vercel
 
+### Option A — Vercel CLI (recommended)
+
+```bash
+npm install -g vercel
+cd ticket-router
+vercel --prod
+```
+
+Select your existing project when prompted. The CLI deploys directly from local files.
+
+### Option B — GitHub integration
+
 1. Push to GitHub
 2. Import the repo in [Vercel](https://vercel.com/new)
 3. Set the **root directory** to `ticket-router/`
 4. Add all `.env` variables under **Settings → Environment Variables**
 5. Deploy
-
-Vercel runs the app via `api/index.py` which wraps Flask as a serverless function.
 
 ---
 
@@ -286,9 +329,13 @@ Vercel runs the app via `api/index.py` which wraps Flask as a serverless functio
 
 **RAG over fine-tuning.** Instead of fine-tuning on company data (slow, expensive, hard to update), the system uses retrieval-augmented generation. Upload a new policy PDF and it's instantly queryable — no retraining.
 
-**pgvector over a dedicated vector DB.** Keeps the stack simple. Supabase's pgvector extension handles similarity search alongside relational queries in the same database, avoiding operational overhead of a separate service.
+**pgvector over a dedicated vector DB.** Keeps the stack simple. Supabase's pgvector extension handles 1024-dim cosine similarity search alongside relational queries in the same database, avoiding operational overhead of a separate service.
 
-**NL-to-SQL with guardrails.** The LLM generates SQL but the system validates it (SELECT only), parameterizes inputs, and returns structured results with chart config and a natural-language explanation.
+**Tiered retrieval fallback.** The RAG pipeline tries pgvector semantic search first, falls back to PostgreSQL full-text search, then ILIKE keyword matching — ensuring answers even when embeddings fail or the NVIDIA API is unavailable.
+
+**Python-level aggregation for structured data.** For Excel/CSV queries, the pipeline fetches all chunks and aggregates in Python rather than relying on the LLM to count rows — preventing hallucinated statistics and context overflow.
+
+**NL-to-SQL with guardrails.** The LLM generates SQL but the system validates it (SELECT only), and returns structured results with chart config and a natural-language explanation.
 
 ---
 
