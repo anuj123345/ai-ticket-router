@@ -43,7 +43,7 @@
           <div class="ob-msg-avatar"><i class="bi bi-robot"></i></div>
           <div class="ob-msg-body">
             <div class="ob-msg-bubble">
-              Hi! I'm your onboarding assistant. {% if documents %}Select a document above to focus your search, or ask anything across all {{ documents | length }} uploaded files.{% else %}Upload documents to get started — I'll answer questions grounded in your company docs.{% endif %}
+              Hi! I'm your Smart Search assistant. {% if documents %}Select a document above to focus your search, or ask anything across all {{ documents | length }} uploaded files.{% else %}Upload documents to get started — I'll answer questions grounded in your uploaded docs.{% endif %}
             </div>
           </div>
         </div>
@@ -113,8 +113,41 @@ const startersContainer = document.getElementById('startersContainer');
 const startersLoading   = document.getElementById('startersLoading');
 const sidebarTitle      = document.getElementById('sidebarTitle');
 
+const CHAT_KEY = 'smart_search_session';
 const conversationHistory = [];
-let selectedDoc = '';   // '' = all documents
+let selectedDoc = '';
+let messageLog = [];   // serialisable log for sessionStorage
+
+function saveSession() {
+  try {
+    sessionStorage.setItem(CHAT_KEY, JSON.stringify({
+      conversationHistory,
+      messageLog,
+      selectedDoc,
+    }));
+  } catch(e) {}
+}
+
+function restoreSession() {
+  try {
+    const saved = sessionStorage.getItem(CHAT_KEY);
+    if (!saved) return;
+    const s = JSON.parse(saved);
+    if (s.conversationHistory) conversationHistory.push(...s.conversationHistory);
+    if (s.selectedDoc) selectDocByName(s.selectedDoc);
+    if (s.messageLog && s.messageLog.length) {
+      s.messageLog.forEach(entry => {
+        if (entry.type === 'user') {
+          _appendUserMessageDOM(entry.text, entry.doc);
+        } else if (entry.type === 'assistant') {
+          _appendAssistantMessageDOM(entry.data, entry.question);
+        }
+      });
+      messageLog = s.messageLog;
+      scrollToBottom();
+    }
+  } catch(e) {}
+}
 
 // ── Document selector ─────────────────────────────────────────────────
 function selectDoc(btn) {
@@ -203,6 +236,7 @@ async function loadSuggestedQuestions(docName) {
 
 // Initialise with defaults on load
 renderDefaultStarters();
+restoreSession();
 
 // ── Chat ──────────────────────────────────────────────────────────────
 questionInput.addEventListener('input', function() {
@@ -249,12 +283,18 @@ function sendQuestion() {
 }
 
 function appendUserMessage(text) {
+  messageLog.push({ type: 'user', text, doc: selectedDoc });
+  _appendUserMessageDOM(text, selectedDoc);
+  saveSession();
+}
+
+function _appendUserMessageDOM(text, doc) {
   const div = document.createElement('div');
   div.className = 'ob-msg ob-msg-user';
   div.innerHTML = `
     <div class="ob-msg-body">
       <div class="ob-msg-bubble">${escHtml(text)}</div>
-      ${selectedDoc ? `<div class="ob-msg-doc-tag"><i class="bi bi-funnel-fill"></i> ${escHtml(selectedDoc)}</div>` : ''}
+      ${doc ? `<div class="ob-msg-doc-tag"><i class="bi bi-funnel-fill"></i> ${escHtml(doc)}</div>` : ''}
     </div>
     <div class="ob-msg-avatar ob-msg-avatar-user"><i class="bi bi-person-fill"></i></div>
   `;
@@ -266,6 +306,12 @@ function appendAssistantMessage(data, question) {
     conversationHistory.push({ question, answer: data.answer });
     if (conversationHistory.length > 10) conversationHistory.shift();
   }
+  messageLog.push({ type: 'assistant', data, question });
+  _appendAssistantMessageDOM(data, question);
+  saveSession();
+}
+
+function _appendAssistantMessageDOM(data, question) {
   const convId  = data.conversation_id;
   const hasDocs = data.has_docs !== false;
 
