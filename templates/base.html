@@ -12,42 +12,97 @@
   <style>
     #page-loader {
       position: fixed;
-      top: 0; left: 0;
-      height: 3px;
-      width: 0;
-      background: linear-gradient(90deg, #7367F0, #CE9FFC, #7367F0);
-      background-size: 200% 100%;
+      inset: 0;
+      background: #ffffff;
       z-index: 99999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       opacity: 0;
-      transition: opacity 0.2s ease;
       pointer-events: none;
+      transition: opacity 0.2s ease;
     }
-    #page-loader.loading {
+    #page-loader.visible {
       opacity: 1;
-      animation: loader-progress 1s ease forwards, loader-shimmer 1.2s linear infinite;
+      pointer-events: all;
     }
-    #page-loader.complete {
+    #page-loader.hiding {
       opacity: 0;
-      width: 100% !important;
-      transition: opacity 0.4s ease 0.1s;
-      animation: none;
+      transition: opacity 0.35s ease;
     }
-    @keyframes loader-progress {
-      0%   { width: 0% }
-      40%  { width: 55% }
-      80%  { width: 80% }
-      100% { width: 88% }
+    .pl-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
     }
-    @keyframes loader-shimmer {
-      0%   { background-position: 200% 0 }
-      100% { background-position: -200% 0 }
+    .pl-logo-ring {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #6366f1, #818cf8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 0 8px rgba(99,102,241,0.12), 0 8px 32px rgba(99,102,241,0.3);
+      animation: pl-pulse 2s ease-in-out infinite;
+    }
+    .pl-logo-icon {
+      font-size: 2rem;
+      color: #fff;
+      line-height: 1;
+    }
+    .pl-brand {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #18181b;
+      letter-spacing: -0.02em;
+      margin-top: 4px;
+    }
+    .pl-tagline {
+      font-size: 0.8125rem;
+      color: #a1a1aa;
+      font-weight: 500;
+    }
+    .pl-dots {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .pl-dots span {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #6366f1;
+      animation: pl-bounce 1.2s ease-in-out infinite;
+    }
+    .pl-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .pl-dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes pl-pulse {
+      0%, 100% { box-shadow: 0 0 0 8px rgba(99,102,241,0.12), 0 8px 32px rgba(99,102,241,0.3); }
+      50%       { box-shadow: 0 0 0 14px rgba(99,102,241,0.08), 0 8px 40px rgba(99,102,241,0.4); }
+    }
+    @keyframes pl-bounce {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40%            { transform: scale(1);   opacity: 1; }
     }
   </style>
 </head>
 <body>
 
 <!-- Page transition loader -->
-<div id="page-loader"></div>
+<div id="page-loader">
+  <div class="pl-card">
+    <div class="pl-logo-ring">
+      <div class="pl-logo-icon"><i class="bi bi-robot"></i></div>
+    </div>
+    <div class="pl-brand">AI Ticket Router</div>
+    <div class="pl-tagline">Powered by NVIDIA NIM</div>
+    <div class="pl-dots">
+      <span></span><span></span><span></span>
+    </div>
+  </div>
+</div>
 
 <!-- Navbar -->
 <nav class="navbar navbar-expand-lg">
@@ -167,26 +222,26 @@
   (function() {
     const loader = document.getElementById('page-loader');
 
-    // Complete animation on every page load
-    loader.classList.add('loading');
+    // Show on every fresh page load, then fade out
+    loader.classList.add('visible');
     document.addEventListener('DOMContentLoaded', function() {
-      loader.classList.remove('loading');
-      loader.style.width = '100%';
-      loader.classList.add('complete');
-      setTimeout(function() { loader.style.width = '0'; loader.classList.remove('complete'); }, 500);
+      setTimeout(function() {
+        loader.classList.add('hiding');
+        setTimeout(function() {
+          loader.classList.remove('visible', 'hiding');
+        }, 380);
+      }, 300);
     });
 
-    // Start on any internal navigation click
+    // Show when navigating to another page
     document.addEventListener('click', function(e) {
       const link = e.target.closest('a[href]');
       if (!link) return;
       const href = link.getAttribute('href');
       if (!href || href === '#' || href.startsWith('javascript') || href.startsWith('mailto') || link.target === '_blank') return;
       if (href.startsWith('http') && !href.includes(window.location.hostname)) return;
-      loader.style.width = '0';
-      loader.classList.remove('complete');
-      void loader.offsetWidth; // force reflow to restart animation
-      loader.classList.add('loading');
+      loader.classList.remove('hiding');
+      loader.classList.add('visible');
     });
   })();
 </script>
