@@ -34,40 +34,47 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 12px;
+      gap: 16px;
     }
-    .pl-logo-ring {
-      width: 80px;
-      height: 80px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #6366f1, #818cf8);
+    .pl-logo-wrap {
+      position: relative;
+      width: 164px;
+      height: 164px;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 0 0 8px rgba(99,102,241,0.12), 0 8px 32px rgba(99,102,241,0.3);
-      animation: pl-pulse 2s ease-in-out infinite;
     }
-    .pl-logo-icon {
-      font-size: 2rem;
-      color: #fff;
-      line-height: 1;
+    .pl-ring {
+      position: absolute;
+      border-radius: 50%;
+      border: 1px solid rgba(99,102,241,0.3);
+      animation: pl-ring-pulse 2.4s ease-out infinite;
+    }
+    .pl-logo-svg {
+      position: relative;
+      z-index: 2;
+      filter: drop-shadow(0 4px 16px rgba(99,102,241,0.25));
     }
     .pl-brand {
-      font-size: 1.25rem;
+      font-size: 1.5rem;
       font-weight: 700;
       color: #18181b;
-      letter-spacing: -0.02em;
+      letter-spacing: -0.03em;
       margin-top: 4px;
+      font-family: Georgia, serif;
     }
     .pl-tagline {
       font-size: 0.8125rem;
       color: #a1a1aa;
       font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-top: -8px;
     }
     .pl-dots {
       display: flex;
       gap: 6px;
-      margin-top: 8px;
+      margin-top: 4px;
     }
     .pl-dots span {
       width: 7px;
@@ -78,9 +85,10 @@
     }
     .pl-dots span:nth-child(2) { animation-delay: 0.2s; }
     .pl-dots span:nth-child(3) { animation-delay: 0.4s; }
-    @keyframes pl-pulse {
-      0%, 100% { box-shadow: 0 0 0 8px rgba(99,102,241,0.12), 0 8px 32px rgba(99,102,241,0.3); }
-      50%       { box-shadow: 0 0 0 14px rgba(99,102,241,0.08), 0 8px 40px rgba(99,102,241,0.4); }
+    @keyframes pl-ring-pulse {
+      0%   { transform: scale(0.85); opacity: 0.6; }
+      60%  { transform: scale(1);    opacity: 0.15; }
+      100% { transform: scale(1);    opacity: 0; }
     }
     @keyframes pl-bounce {
       0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
@@ -93,11 +101,18 @@
 <!-- Page transition loader -->
 <div id="page-loader">
   <div class="pl-card">
-    <div class="pl-logo-ring">
-      <div class="pl-logo-icon"><i class="bi bi-robot"></i></div>
+    <div class="pl-logo-wrap">
+      <span class="pl-ring" style="width:110px;height:110px;animation-delay:0s"></span>
+      <span class="pl-ring" style="width:136px;height:136px;animation-delay:0.35s"></span>
+      <span class="pl-ring" style="width:164px;height:164px;animation-delay:0.7s"></span>
+      <svg class="pl-logo-svg" width="72" height="72" viewBox="0 0 120 120" fill="none">
+        <circle cx="60" cy="60" r="54" stroke="#6366f1" stroke-width="2" fill="none" opacity="0.9"/>
+        <path d="M38 42 C38 34 48 28 60 28 C72 28 82 34 82 42 C82 52 72 56 60 60 C48 64 38 68 38 78 C38 86 48 92 60 92 C72 92 82 86 82 78"
+              stroke="#6366f1" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+      </svg>
     </div>
-    <div class="pl-brand">AI Ticket Router</div>
-    <div class="pl-tagline">Powered by NVIDIA NIM</div>
+    <div class="pl-brand">Solace</div>
+    <div class="pl-tagline">AI Ticket Router</div>
     <div class="pl-dots">
       <span></span><span></span><span></span>
     </div>
@@ -108,8 +123,12 @@
 <nav class="navbar navbar-expand-lg">
   <div class="container">
     <a class="navbar-brand" href="/">
-      <div class="brand-icon"><i class="bi bi-robot"></i></div>
-      AI Ticket Router
+      <svg width="28" height="28" viewBox="0 0 120 120" fill="none" style="flex-shrink:0">
+        <circle cx="60" cy="60" r="54" stroke="#6366f1" stroke-width="3" fill="none" opacity="0.9"/>
+        <path d="M38 42 C38 34 48 28 60 28 C72 28 82 34 82 42 C82 52 72 56 60 60 C48 64 38 68 38 78 C38 86 48 92 60 92 C72 92 82 86 82 78"
+              stroke="#6366f1" stroke-width="5" fill="none" stroke-linecap="round"/>
+      </svg>
+      Solace
     </a>
     <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu">
       <i class="bi bi-list fs-5"></i>
