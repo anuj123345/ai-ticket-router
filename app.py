@@ -17,6 +17,7 @@ from services.response_gen import generate_draft, format_full_response
 from services.nl_query import nl_query as run_nl_query
 from services.doc_processor import process_and_store, get_all_documents, delete_document
 from services.onboarding_agent import answer_question, save_verified_qa, get_feedback_stats
+from services.data_engine import get_data_documents, build_dashboard
 
 load_dotenv()
 
@@ -371,11 +372,12 @@ def onboarding_chat():
     data       = request.get_json(silent=True) or {}
     question   = data.get("question", "").strip()
     history    = data.get("history", [])
-    doc_filter = data.get("doc_filter", None)   # specific doc name or None = all
+    doc_filter = data.get("doc_filter", None)
+    model      = data.get("model", None)
     if not question:
         return jsonify({"error": "Question is required."}), 400
     try:
-        result = answer_question(question, history=history, doc_filter=doc_filter)
+        result = answer_question(question, history=history, doc_filter=doc_filter, model=model)
         return jsonify(result)
     except Exception as e:
         import traceback
@@ -479,6 +481,30 @@ def onboarding_admin():
     documents = get_all_documents()
     stats     = get_feedback_stats()
     return render_template("onboarding_admin.html", documents=documents, stats=stats)
+
+
+# ─── Data Studio ──────────────────────────────────────────────────────────────
+
+@app.route("/data-studio")
+@login_required
+def data_studio():
+    docs = get_data_documents()
+    return render_template("data_studio.html", documents=docs)
+
+
+@app.route("/data-studio/load", methods=["POST"])
+@login_required
+def data_studio_load():
+    data    = request.get_json(silent=True) or {}
+    doc     = data.get("document_name", "").strip()
+    quarter = data.get("quarter", None)
+    if not doc:
+        return jsonify({"error": "document_name required"}), 400
+    try:
+        result = build_dashboard(doc, quarter=quarter)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ─── Run ─────────────────────────────────────────────────────────────────────

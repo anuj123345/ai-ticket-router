@@ -2,6 +2,7 @@
 Auth layer — user registration, login, session helpers.
 Uses werkzeug password hashing (bundled with Flask).
 """
+from __future__ import annotations
 from werkzeug.security import generate_password_hash, check_password_hash
 from models.db import get_client
 

@@ -8,6 +8,7 @@ Features:
   - Conversation memory (last N exchanges passed as context)
   - Outdated content detection
 """
+from __future__ import annotations
 import os
 import re
 import json
@@ -422,15 +423,16 @@ def parse_response(raw: str) -> dict:
 # ── Main pipeline ─────────────────────────────────────────────────────────────
 
 def answer_question(question: str, history: list[dict] | None = None,
-                    doc_filter: str | None = None) -> dict:
+                    doc_filter: str | None = None, model: str | None = None) -> dict:
     """
     Delegates to the LangGraph RAG pipeline in services/rag_graph.py.
     history: list of {"question": str, "answer": str} from recent session turns.
     doc_filter: restrict retrieval to a single document name (or None = all docs).
+    model: NVIDIA NIM model string (falls back to DEFAULT_MODEL if invalid/None).
     Returns: {answer, sources, possibly_outdated, outdated_reason, conversation_id, has_docs}
     """
     from services.rag_graph import run_rag
-    return run_rag(question, history=history, doc_filter=doc_filter)
+    return run_rag(question, history=history, doc_filter=doc_filter, model=model)
 
 
 def save_verified_qa(conversation_id: int):

@@ -2,6 +2,7 @@
 Database layer — Supabase (PostgreSQL via supabase-py v2).
 Replaces SQLite; data persists across Vercel cold starts.
 """
+from __future__ import annotations
 import os
 from datetime import datetime, timezone
 from supabase import create_client, Client

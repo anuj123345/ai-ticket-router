@@ -33,6 +33,25 @@
   </div>
   {% endif %}
 
+  <!-- ── Model selector ─────────────────────────────────────────────── -->
+  <div class="ob-model-selector">
+    <span class="ob-doc-selector-label"><i class="bi bi-cpu me-1"></i>Model:</span>
+    <div class="ob-model-pills">
+      <button class="ob-model-pill active" data-model="meta/llama-3.1-8b-instruct" onclick="selectModel(this)"
+              title="Lightweight & fast — good for most queries">
+        <i class="bi bi-lightning-charge-fill"></i>
+        <span class="ob-model-name">Llama 3.1 8B</span>
+        <span class="ob-model-badge">Fast</span>
+      </button>
+      <button class="ob-model-pill" data-model="nvidia/nemotron-3-ultra-550b-a55b" onclick="selectModel(this)"
+              title="NVIDIA frontier 550B model — deepest reasoning, best quality">
+        <i class="bi bi-stars"></i>
+        <span class="ob-model-name">Nemotron 550B</span>
+        <span class="ob-model-badge">Power</span>
+      </button>
+    </div>
+  </div>
+
   <div class="ob-layout">
 
     <!-- ── Chat panel ──────────────────────────────────────────────── -->
@@ -115,8 +134,9 @@ const sidebarTitle      = document.getElementById('sidebarTitle');
 
 const CHAT_KEY = 'smart_search_session';
 const conversationHistory = [];
-let selectedDoc = '';
-let messageLog = [];   // serialisable log for sessionStorage
+let selectedDoc   = '';
+let selectedModel = 'meta/llama-3.1-8b-instruct';
+let messageLog    = [];   // serialisable log for sessionStorage
 
 function saveSession() {
   try {
@@ -124,6 +144,7 @@ function saveSession() {
       conversationHistory,
       messageLog,
       selectedDoc,
+      selectedModel,
     }));
   } catch(e) {}
 }
@@ -134,7 +155,8 @@ function restoreSession() {
     if (!saved) return;
     const s = JSON.parse(saved);
     if (s.conversationHistory) conversationHistory.push(...s.conversationHistory);
-    if (s.selectedDoc) selectDocByName(s.selectedDoc);
+    if (s.selectedDoc)   selectDocByName(s.selectedDoc);
+    if (s.selectedModel) selectModelByValue(s.selectedModel);
     if (s.messageLog && s.messageLog.length) {
       s.messageLog.forEach(entry => {
         if (entry.type === 'user') {
@@ -147,6 +169,19 @@ function restoreSession() {
       scrollToBottom();
     }
   } catch(e) {}
+}
+
+// ── Model selector ────────────────────────────────────────────────────
+function selectModel(btn) {
+  document.querySelectorAll('.ob-model-pill').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  selectedModel = btn.dataset.model;
+  saveSession();
+}
+
+function selectModelByValue(modelVal) {
+  const btn = document.querySelector(`.ob-model-pill[data-model="${modelVal}"]`);
+  if (btn) selectModel(btn);
 }
 
 // ── Document selector ─────────────────────────────────────────────────
@@ -267,6 +302,7 @@ function sendQuestion() {
       question:   q,
       history:    conversationHistory.slice(-5),
       doc_filter: selectedDoc || null,
+      model:      selectedModel,
     }),
   })
   .then(r => r.json())

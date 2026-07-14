@@ -150,6 +150,9 @@
         <a class="nav-link {% if request.endpoint in ['onboarding', 'onboarding_admin'] %}active{% endif %}" href="/onboarding">
           <i class="bi bi-search"></i> Smart Search
         </a>
+        <a class="nav-link {% if request.endpoint == 'data_studio' %}active{% endif %}" href="/data-studio">
+          <i class="bi bi-bar-chart-steps"></i> Data Studio
+        </a>
         {% if session.get('user_id') %}
         <div class="nav-user-pill mt-2 mt-lg-0 ms-lg-2">
           <i class="bi bi-person-circle"></i>

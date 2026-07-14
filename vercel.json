@@ -5,7 +5,7 @@
       "src": "app.py",
       "use": "@vercel/python",
       "config": {
-        "maxDuration": 30,
+        "maxDuration": 60,
         "includeFiles": ["templates/**", "static/**", "knowledge_base/**", "models/**", "services/**"]
       }
     }
