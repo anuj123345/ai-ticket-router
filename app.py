@@ -492,16 +492,33 @@ def data_studio():
     return render_template("data_studio.html", documents=docs)
 
 
-@app.route("/data-studio/load", methods=["POST"])
+@app.route("/data-studio/columns", methods=["POST"])
 @login_required
-def data_studio_load():
-    data    = request.get_json(silent=True) or {}
-    doc     = data.get("document_name", "").strip()
-    quarter = data.get("quarter", None)
+def data_studio_columns():
+    from services.data_engine import get_column_info
+    body = request.get_json(silent=True) or {}
+    doc  = body.get("document_name", "").strip()
     if not doc:
         return jsonify({"error": "document_name required"}), 400
     try:
-        result = build_dashboard(doc, quarter=quarter)
+        return jsonify(get_column_info(doc))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/data-studio/load", methods=["POST"])
+@login_required
+def data_studio_load():
+    body          = request.get_json(silent=True) or {}
+    doc           = body.get("document_name", "").strip()
+    quarter       = body.get("quarter") or None
+    filters       = body.get("filters") or None
+    chart_configs = body.get("chart_configs") or None
+    if not doc:
+        return jsonify({"error": "document_name required"}), 400
+    try:
+        result = build_dashboard(doc, quarter=quarter,
+                                 filters=filters, chart_configs=chart_configs)
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Data Studio — AI Ticket Router{% endblock %}
+{% block title %}Data Studio — Solace{% endblock %}
 
 {% block content %}
 <div class="ds-wrap">
@@ -10,6 +10,9 @@
       <h1 class="ds-title"><i class="bi bi-bar-chart-steps me-2"></i>Data Studio</h1>
       <p class="ds-subtitle">Upload an Excel or CSV file via Smart Search Admin, then visualise it here</p>
     </div>
+    <a href="/onboarding/admin" class="btn-manage-data">
+      <i class="bi bi-cloud-upload me-1"></i> Manage Data
+    </a>
   </div>
 
   {% if not documents %}
@@ -22,11 +25,11 @@
   </div>
   {% else %}
 
-  <!-- ── Controls ── -->
+  <!-- ── Top controls ── -->
   <div class="ds-controls">
     <div class="ds-doc-select-wrap">
       <label class="ds-label"><i class="bi bi-file-earmark-spreadsheet me-1"></i>Dataset</label>
-      <select id="docSelect" class="ds-select" onchange="loadDashboard()">
+      <select id="docSelect" class="ds-select" onchange="onDatasetChange()">
         <option value="">— Select a file —</option>
         {% for doc in documents %}
         <option value="{{ doc.name }}">{{ doc.name }}</option>
@@ -44,6 +47,66 @@
         <button class="ds-qtr-pill" data-q="Q4" onclick="setQuarter(this)">Q4</button>
       </div>
     </div>
+
+    <div class="ds-controls-actions" id="controlsActions" style="display:none">
+      <button class="btn-configure" id="configToggleBtn" onclick="toggleConfig()">
+        <i class="bi bi-sliders me-1"></i> Configure
+      </button>
+      <button class="btn-apply" onclick="applyDashboard()">
+        <i class="bi bi-arrow-clockwise me-1"></i> Apply
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Configure panel ── -->
+  <div class="ds-config-panel" id="configPanel" style="display:none">
+
+    <!-- Filters section -->
+    <div class="config-section">
+      <div class="config-section-title">
+        <i class="bi bi-funnel me-1"></i> Filters
+        <span class="config-hint">Narrow down rows before charting</span>
+      </div>
+      <div class="filter-add-row">
+        <select id="filterColSelect" class="filter-select" onchange="onFilterColChange()">
+          <option value="">— Column —</option>
+        </select>
+        <select id="filterValSelect" class="filter-select">
+          <option value="">— Value —</option>
+        </select>
+        <button class="btn-add-filter" onclick="addFilter()">
+          <i class="bi bi-plus-lg"></i> Add filter
+        </button>
+        <button class="btn-clear-all" onclick="clearFilters()" id="clearFiltersBtn" style="display:none">
+          Clear all
+        </button>
+      </div>
+      <div id="filterChips" class="filter-chips"></div>
+    </div>
+
+    <!-- Charts section -->
+    <div class="config-section">
+      <div class="config-section-title">
+        <i class="bi bi-bar-chart me-1"></i> Charts
+        <span class="config-hint">Toggle, reorder columns, and change chart type per slot</span>
+      </div>
+      <div class="chart-slots-header">
+        <span></span>
+        <span class="slot-col-label">X-axis (group by)</span>
+        <span class="slot-col-label">Y-axis (metric)</span>
+        <span class="slot-col-label">Chart type</span>
+      </div>
+      <div id="chartSlots"></div>
+    </div>
+
+    <div class="config-footer">
+      <button class="btn-apply-lg" onclick="applyDashboard()">
+        <i class="bi bi-arrow-clockwise me-1"></i> Apply Dashboard
+      </button>
+      <button class="btn-reset" onclick="resetToAuto()">
+        Reset to auto
+      </button>
+    </div>
   </div>
 
   <!-- ── Loading state ── -->
@@ -60,13 +123,8 @@
 
   <!-- ── Dashboard ── -->
   <div id="dsDashboard" style="display:none">
-
-    <!-- KPI cards -->
     <div class="ds-kpi-row" id="kpiRow"></div>
-
-    <!-- Charts grid -->
     <div class="ds-charts-grid" id="chartsGrid"></div>
-
   </div>
 
   {% endif %}
@@ -75,47 +133,253 @@
 
 {% block scripts %}
 <script>
+/* ── State ─────────────────────────────────────────────── */
 let currentDoc     = '';
 let currentQuarter = '';
+let columnInfo     = {};   // { col: { type, values[] } }
+let activeFilters  = [];   // [ { col, val } ]
 let chartInstances = {};
+let configOpen     = false;
 
+const CHART_TYPE_LABELS = {
+  bar:      'Bar (horizontal)',
+  bar_v:    'Bar (vertical)',
+  doughnut: 'Doughnut',
+  line:     'Line',
+};
+
+/* ── Quarter ───────────────────────────────────────────── */
 function setQuarter(btn) {
   document.querySelectorAll('.ds-qtr-pill').forEach(p => p.classList.remove('active'));
   btn.classList.add('active');
   currentQuarter = btn.dataset.q;
-  if (currentDoc) loadDashboard();
+  if (currentDoc) applyDashboard();
 }
 
-function loadDashboard() {
-  const select = document.getElementById('docSelect');
-  currentDoc = select.value;
+/* ── Dataset change ────────────────────────────────────── */
+async function onDatasetChange() {
+  currentDoc = document.getElementById('docSelect').value;
+  if (!currentDoc) {
+    document.getElementById('configPanel').style.display = 'none';
+    document.getElementById('controlsActions').style.display = 'none';
+    document.getElementById('dsDashboard').style.display = 'none';
+    document.getElementById('dsPlaceholder').style.display = 'flex';
+    return;
+  }
+
+  // Show loading while fetching columns
+  showLoading();
+  document.getElementById('controlsActions').style.display = 'flex';
+
+  try {
+    const resp = await fetch('/data-studio/columns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document_name: currentDoc }),
+    });
+    columnInfo = await resp.json();
+    buildConfigPanel();
+  } catch (e) {
+    columnInfo = {};
+  }
+
+  // Auto-load dashboard
+  applyDashboard();
+}
+
+/* ── Config panel toggle ───────────────────────────────── */
+function toggleConfig() {
+  configOpen = !configOpen;
+  const panel = document.getElementById('configPanel');
+  const btn   = document.getElementById('configToggleBtn');
+  panel.style.display = configOpen ? 'block' : 'none';
+  btn.classList.toggle('active', configOpen);
+}
+
+/* ── Build the configure panel ─────────────────────────── */
+function buildConfigPanel() {
+  const allCols = Object.keys(columnInfo);
+  const catCols = allCols.filter(c =>
+    columnInfo[c].type === 'categorical' || columnInfo[c].type === 'month' || columnInfo[c].type === 'date'
+  );
+  const numCols = allCols.filter(c => columnInfo[c].type === 'numeric');
+
+  // Reset active filters (new dataset)
+  activeFilters = [];
+  renderFilterChips();
+
+  // Populate filter column dropdown
+  const filterColSel = document.getElementById('filterColSelect');
+  filterColSel.innerHTML = '<option value="">— Column —</option>' +
+    catCols.map(c => `<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
+  document.getElementById('filterValSelect').innerHTML = '<option value="">— Value —</option>';
+
+  // Build 6 chart slots with sensible defaults
+  const defaults = [
+    { cat: catCols[0]||'', num: numCols[0]||'', type: 'bar',      enabled: true  },
+    { cat: (catCols[1]||catCols[0])||'', num: numCols[0]||'', type: 'doughnut', enabled: true  },
+    { cat: catCols[0]||'', num: (numCols[1]||numCols[0])||'', type: 'bar', enabled: numCols.length > 1 },
+    { cat: catCols[0]||'', num: (numCols[0])||'', type: 'doughnut', enabled: catCols.length > 1 && numCols.length > 1 },
+    { cat: (catCols[2]||catCols[1]||catCols[0])||'', num: numCols[0]||'', type: 'bar_v', enabled: catCols.length > 1 },
+    { cat: catCols[0]||'', num: numCols[0]||'', type: 'line', enabled: false },
+  ];
+
+  const slotsDiv = document.getElementById('chartSlots');
+  slotsDiv.innerHTML = '';
+
+  defaults.forEach((slot, i) => {
+    const row = document.createElement('div');
+    row.className = 'chart-slot-row';
+    row.id = `slot${i}`;
+
+    const catOptions = allCols.map(c =>
+      `<option value="${escHtml(c)}" ${c===slot.cat?'selected':''}>${escHtml(c)}</option>`
+    ).join('');
+    const numOptions = numCols.map(c =>
+      `<option value="${escHtml(c)}" ${c===slot.num?'selected':''}>${escHtml(c)}</option>`
+    ).join('');
+    const typeOptions = Object.entries(CHART_TYPE_LABELS).map(([v,l]) =>
+      `<option value="${v}" ${v===slot.type?'selected':''}>${l}</option>`
+    ).join('');
+
+    row.innerHTML = `
+      <label class="slot-toggle-wrap">
+        <input type="checkbox" id="slot${i}Enabled" ${slot.enabled?'checked':''} onchange="updateSlotState(${i})">
+        <span class="slot-num">Chart ${i+1}</span>
+      </label>
+      <select id="slot${i}Cat" class="slot-select" ${!slot.enabled?'disabled':''}>
+        <option value="">— X-axis —</option>${catOptions}
+      </select>
+      <select id="slot${i}Num" class="slot-select" ${!slot.enabled?'disabled':''}>
+        <option value="">— Y-axis —</option>${numOptions}
+      </select>
+      <select id="slot${i}Type" class="slot-select slot-type-sel" ${!slot.enabled?'disabled':''}>
+        ${typeOptions}
+      </select>
+    `;
+    slotsDiv.appendChild(row);
+  });
+}
+
+function updateSlotState(i) {
+  const enabled = document.getElementById(`slot${i}Enabled`).checked;
+  document.getElementById(`slot${i}Cat`).disabled  = !enabled;
+  document.getElementById(`slot${i}Num`).disabled  = !enabled;
+  document.getElementById(`slot${i}Type`).disabled = !enabled;
+  document.getElementById(`slot${i}`).classList.toggle('slot-disabled', !enabled);
+}
+
+/* ── Filters ───────────────────────────────────────────── */
+function onFilterColChange() {
+  const col    = document.getElementById('filterColSelect').value;
+  const valSel = document.getElementById('filterValSelect');
+  if (!col || !columnInfo[col]) {
+    valSel.innerHTML = '<option value="">— Value —</option>';
+    return;
+  }
+  const vals = columnInfo[col].values || [];
+  valSel.innerHTML = '<option value="">— Value —</option>' +
+    vals.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('');
+}
+
+function addFilter() {
+  const col = document.getElementById('filterColSelect').value;
+  const val = document.getElementById('filterValSelect').value;
+  if (!col || !val) return;
+  activeFilters = activeFilters.filter(f => f.col !== col);
+  activeFilters.push({ col, val });
+  renderFilterChips();
+}
+
+function removeFilter(col) {
+  activeFilters = activeFilters.filter(f => f.col !== col);
+  renderFilterChips();
+}
+
+function clearFilters() {
+  activeFilters = [];
+  renderFilterChips();
+}
+
+function renderFilterChips() {
+  const div     = document.getElementById('filterChips');
+  const clearBtn = document.getElementById('clearFiltersBtn');
+  if (activeFilters.length === 0) {
+    div.innerHTML = '';
+    clearBtn.style.display = 'none';
+    return;
+  }
+  clearBtn.style.display = 'inline-flex';
+  div.innerHTML = activeFilters.map(f => `
+    <span class="filter-chip">
+      <span class="chip-col">${escHtml(f.col)}</span>
+      <span class="chip-sep">:</span>
+      <strong>${escHtml(f.val)}</strong>
+      <button class="chip-remove" onclick="removeFilter('${escHtml(f.col).replace(/'/g, "\\'")}')">×</button>
+    </span>
+  `).join('');
+}
+
+/* ── Apply dashboard ───────────────────────────────────── */
+function applyDashboard() {
   if (!currentDoc) return;
 
-  document.getElementById('dsPlaceholder').style.display = 'none';
-  document.getElementById('dsDashboard').style.display  = 'none';
-  document.getElementById('dsLoading').style.display    = 'flex';
+  // Collect chart configs from slots (if panel was built)
+  let chart_configs = null;
+  const slot0 = document.getElementById('slot0Enabled');
+  if (slot0) {
+    chart_configs = [];
+    for (let i = 0; i < 6; i++) {
+      const enabledEl = document.getElementById(`slot${i}Enabled`);
+      if (!enabledEl) { chart_configs.push({ enabled: false }); continue; }
+      chart_configs.push({
+        enabled:    enabledEl.checked,
+        cat_col:    document.getElementById(`slot${i}Cat`)?.value  || '',
+        num_col:    document.getElementById(`slot${i}Num`)?.value  || '',
+        chart_type: document.getElementById(`slot${i}Type`)?.value || 'bar',
+      });
+    }
+    // If all disabled or no config set, fall back to auto
+    if (!chart_configs.some(c => c.enabled && c.cat_col && c.num_col)) {
+      chart_configs = null;
+    }
+  }
+
+  // Collect filters
+  const filters = {};
+  activeFilters.forEach(f => { filters[f.col] = f.val; });
+
+  showLoading();
 
   fetch('/data-studio/load', {
-    method: 'POST',
+    method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ document_name: currentDoc, quarter: currentQuarter || null }),
+    body: JSON.stringify({
+      document_name: currentDoc,
+      quarter:       currentQuarter || null,
+      filters:       Object.keys(filters).length ? filters : null,
+      chart_configs: chart_configs,
+    }),
   })
   .then(r => r.json())
   .then(data => {
-    document.getElementById('dsLoading').style.display = 'none';
+    hideLoading();
     if (data.error) {
-      document.getElementById('dsPlaceholder').style.display = 'flex';
-      document.getElementById('dsPlaceholder').querySelector('p').textContent = data.error;
+      showPlaceholder(data.error);
       return;
     }
     renderDashboard(data);
   })
-  .catch(() => {
-    document.getElementById('dsLoading').style.display = 'none';
-    document.getElementById('dsPlaceholder').style.display = 'flex';
-  });
+  .catch(() => { hideLoading(); showPlaceholder('Failed to load dashboard.'); });
 }
 
+function resetToAuto() {
+  // Re-build the slot defaults without changing filters
+  buildConfigPanel();
+  applyDashboard();
+}
+
+/* ── Dashboard rendering ───────────────────────────────── */
 function renderDashboard(data) {
   // Quarter filter visibility
   document.getElementById('quarterWrap').style.display = data.has_quarters ? 'flex' : 'none';
@@ -124,10 +388,21 @@ function renderDashboard(data) {
   const kpiRow = document.getElementById('kpiRow');
   kpiRow.innerHTML = data.kpis.map(k => `
     <div class="ds-kpi-card">
-      <div class="ds-kpi-value">${k.value}</div>
+      <div class="ds-kpi-value">${escHtml(String(k.value))}</div>
       <div class="ds-kpi-label">${escHtml(k.label)}</div>
     </div>
   `).join('');
+
+  // Active filter badge
+  if (activeFilters.length > 0) {
+    kpiRow.innerHTML += `
+      <div class="ds-filter-badge">
+        <i class="bi bi-funnel-fill me-1"></i>
+        Filtered by: ${activeFilters.map(f => `<strong>${escHtml(f.col)}</strong> = ${escHtml(f.val)}`).join(', ')}
+        &nbsp;·&nbsp; ${escHtml(String(data.total_rows))} rows
+      </div>
+    `;
+  }
 
   // Destroy old charts
   Object.values(chartInstances).forEach(c => c.destroy());
@@ -146,17 +421,13 @@ function renderDashboard(data) {
     `;
     grid.appendChild(card);
 
-    const ctx = document.getElementById(cfg.id).getContext('2d');
+    const ctx          = document.getElementById(cfg.id).getContext('2d');
     const isHorizontal = cfg.indexAxis === 'y';
     const isDoughnut   = cfg.type === 'doughnut';
-    const isLine       = cfg.type === 'line';
 
     chartInstances[cfg.id] = new Chart(ctx, {
       type: cfg.type,
-      data: {
-        labels:   cfg.labels,
-        datasets: cfg.datasets,
-      },
+      data: { labels: cfg.labels, datasets: cfg.datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -165,11 +436,7 @@ function renderDashboard(data) {
           legend: {
             display: isDoughnut,
             position: 'bottom',
-            labels: {
-              font: { size: 11, family: 'Inter, sans-serif' },
-              padding: 12,
-              boxWidth: 12,
-            },
+            labels: { font: { size: 11, family: 'Inter, sans-serif' }, padding: 12, boxWidth: 12 },
           },
           tooltip: {
             callbacks: {
@@ -181,16 +448,10 @@ function renderDashboard(data) {
           }
         },
         scales: isDoughnut ? {} : {
-          x: {
-            grid: { color: 'rgba(0,0,0,0.05)' },
-            ticks: { font: { size: 11 }, color: '#6b7280' },
-          },
-          y: {
-            grid: { color: 'rgba(0,0,0,0.05)' },
-            ticks: { font: { size: 11 }, color: '#6b7280' },
-          },
+          x: { grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { font: { size: 11 }, color: '#6b7280' } },
+          y: { grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { font: { size: 11 }, color: '#6b7280' } },
         },
-        animation: { duration: 500 },
+        animation: { duration: 400 },
       }
     });
   });
@@ -198,22 +459,51 @@ function renderDashboard(data) {
   document.getElementById('dsDashboard').style.display = 'block';
 }
 
+/* ── Helpers ───────────────────────────────────────────── */
+function showLoading() {
+  document.getElementById('dsPlaceholder').style.display = 'none';
+  document.getElementById('dsDashboard').style.display   = 'none';
+  document.getElementById('dsLoading').style.display     = 'flex';
+}
+function hideLoading() {
+  document.getElementById('dsLoading').style.display = 'none';
+}
+function showPlaceholder(msg) {
+  const el = document.getElementById('dsPlaceholder');
+  el.querySelector('p').textContent = msg;
+  el.style.display = 'flex';
+}
 function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
 
 <style>
-.ds-wrap { max-width: 1400px; margin: 0 auto; padding: 2rem 1rem; }
+/* ── Layout ─────────────────────────────────────────────── */
+.ds-wrap    { max-width: 1400px; margin: 0 auto; padding: 2rem 1rem; }
 
-.ds-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; }
-.ds-title  { font-size: 1.6rem; font-weight: 700; color: var(--text-1); margin: 0; }
+.ds-header  {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  margin-bottom: 1.5rem;
+}
+.ds-title   { font-size: 1.6rem; font-weight: 700; color: var(--text-1); margin: 0; }
 .ds-subtitle { font-size: 0.875rem; color: var(--text-2); margin: 4px 0 0; }
 
+.btn-manage-data {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
+  background: var(--surface); border: 1.5px solid var(--border);
+  color: var(--text-1); text-decoration: none; transition: all 0.15s;
+}
+.btn-manage-data:hover { border-color: var(--primary); color: var(--primary); }
+
+/* ── Top controls ────────────────────────────────────────── */
 .ds-controls {
   display: flex; align-items: flex-end; gap: 1.5rem; flex-wrap: wrap;
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 1rem 1.25rem; margin-bottom: 1.5rem;
+  border-radius: var(--radius); padding: 1rem 1.25rem; margin-bottom: 1rem;
 }
 .ds-label { font-size: 0.8rem; font-weight: 600; color: var(--text-2); display: block; margin-bottom: 6px; }
 .ds-select {
@@ -235,24 +525,151 @@ function escHtml(s) {
 .ds-qtr-pill:hover  { border-color: var(--primary); color: var(--primary); }
 .ds-qtr-pill.active { background: var(--primary); border-color: var(--primary); color: #fff; }
 
-/* KPIs */
-.ds-kpi-row { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+.ds-controls-actions { display: flex; align-items: flex-end; gap: 8px; margin-left: auto; }
+
+.btn-configure {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
+  background: var(--surface); border: 1.5px solid var(--border);
+  color: var(--text-1); cursor: pointer; transition: all 0.15s;
+}
+.btn-configure:hover, .btn-configure.active {
+  border-color: var(--primary); color: var(--primary);
+  background: rgba(99,102,241,0.06);
+}
+
+.btn-apply {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
+  background: var(--primary); border: 1.5px solid var(--primary);
+  color: #fff; cursor: pointer; transition: all 0.15s;
+}
+.btn-apply:hover { opacity: 0.88; }
+
+/* ── Configure panel ─────────────────────────────────────── */
+.ds-config-panel {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1.25rem;
+}
+
+.config-section { margin-bottom: 1.25rem; }
+.config-section:last-of-type { margin-bottom: 0; }
+
+.config-section-title {
+  font-size: 0.8rem; font-weight: 700; color: var(--text-1);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  margin-bottom: 0.75rem; display: flex; align-items: center; gap: 6px;
+}
+.config-hint { font-size: 0.75rem; font-weight: 400; color: var(--text-3); text-transform: none; letter-spacing: 0; }
+
+/* Filters */
+.filter-add-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.filter-select {
+  border: 1.5px solid var(--border); border-radius: 8px;
+  padding: 7px 10px; font-size: 0.85rem; font-family: inherit;
+  color: var(--text-1); background: var(--bg); min-width: 180px;
+  cursor: pointer; outline: none;
+}
+.filter-select:focus { border-color: var(--primary); }
+
+.btn-add-filter {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 7px 14px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
+  background: var(--primary); border: none; color: #fff; cursor: pointer;
+}
+.btn-add-filter:hover { opacity: 0.88; }
+
+.btn-clear-all {
+  display: inline-flex; align-items: center;
+  padding: 7px 12px; border-radius: 8px; font-size: 0.8rem; font-weight: 600;
+  background: transparent; border: 1.5px solid var(--border);
+  color: var(--text-2); cursor: pointer; transition: all 0.15s;
+}
+.btn-clear-all:hover { border-color: #ef4444; color: #ef4444; }
+
+.filter-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px; border-radius: 20px;
+  background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.25);
+  font-size: 0.8rem; color: var(--text-1);
+}
+.chip-col  { color: var(--text-2); }
+.chip-sep  { color: var(--text-3); }
+.chip-remove {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-2); font-size: 0.95rem; padding: 0 2px; line-height: 1;
+}
+.chip-remove:hover { color: #ef4444; }
+
+/* Chart slots */
+.chart-slots-header {
+  display: grid; grid-template-columns: 120px 1fr 1fr 140px;
+  gap: 8px; padding: 0 0 4px;
+  font-size: 0.72rem; font-weight: 600; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.slot-col-label { padding-left: 4px; }
+
+.chart-slot-row {
+  display: grid; grid-template-columns: 120px 1fr 1fr 140px;
+  gap: 8px; align-items: center;
+  padding: 6px 0; border-top: 1px solid var(--border);
+}
+.chart-slot-row:first-child { border-top: none; }
+
+.slot-toggle-wrap { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.slot-toggle-wrap input[type=checkbox] { width: 14px; height: 14px; accent-color: var(--primary); cursor: pointer; }
+.slot-num { font-size: 0.8rem; font-weight: 600; color: var(--text-1); }
+
+.slot-select {
+  border: 1.5px solid var(--border); border-radius: 7px;
+  padding: 6px 8px; font-size: 0.82rem; font-family: inherit;
+  color: var(--text-1); background: var(--bg);
+  cursor: pointer; outline: none; width: 100%;
+}
+.slot-select:focus { border-color: var(--primary); }
+.slot-select:disabled { opacity: 0.4; cursor: not-allowed; }
+.slot-disabled .slot-num { opacity: 0.4; }
+
+.config-footer {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 1.25rem; padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.btn-apply-lg {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 9px 20px; border-radius: 8px; font-size: 0.875rem; font-weight: 600;
+  background: var(--primary); border: none; color: #fff; cursor: pointer;
+}
+.btn-apply-lg:hover { opacity: 0.88; }
+.btn-reset {
+  background: none; border: 1.5px solid var(--border); border-radius: 8px;
+  padding: 8px 16px; font-size: 0.85rem; font-weight: 600;
+  color: var(--text-2); cursor: pointer; transition: all 0.15s;
+}
+.btn-reset:hover { border-color: var(--text-2); color: var(--text-1); }
+
+/* ── KPIs ────────────────────────────────────────────────── */
+.ds-kpi-row { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; align-items: center; }
 .ds-kpi-card {
   flex: 1; min-width: 160px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 1.25rem 1.5rem;
-  text-align: center;
   background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  border-radius: var(--radius); padding: 1.25rem 1.5rem; text-align: center;
 }
 .ds-kpi-value { font-size: 2rem; font-weight: 800; color: #fff; letter-spacing: -0.02em; }
 .ds-kpi-label { font-size: 0.78rem; color: rgba(255,255,255,0.8); font-weight: 600;
                 text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
 
-/* Charts */
+.ds-filter-badge {
+  flex: none; padding: 8px 14px; border-radius: 8px;
+  background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2);
+  font-size: 0.8rem; color: var(--text-2);
+}
+
+/* ── Charts ──────────────────────────────────────────────── */
 .ds-charts-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1rem;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;
 }
 @media (max-width: 1024px) { .ds-charts-grid { grid-template-columns: repeat(2,1fr); } }
 @media (max-width: 640px)  { .ds-charts-grid { grid-template-columns: 1fr; } }
@@ -263,12 +680,11 @@ function escHtml(s) {
 }
 .ds-chart-title {
   font-size: 0.8125rem; font-weight: 600; color: var(--text-2);
-  margin-bottom: 1rem; white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis;
+  margin-bottom: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ds-chart-body { height: 240px; position: relative; }
 
-/* States */
+/* ── States ──────────────────────────────────────────────── */
 .ds-loading, .ds-placeholder, .ds-empty {
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 12px; padding: 4rem;

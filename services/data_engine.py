@@ -53,6 +53,35 @@ def _fetch_rows(document_name: str) -> list[dict]:
     return all_rows
 
 
+def get_column_info(document_name: str) -> dict:
+    """
+    Return column types and sample categorical values for the config UI.
+    Format: { col_name: { type: "categorical"|"numeric"|"month"|"date", values: [...] } }
+    """
+    client = get_client()
+    resp = (client.table("dataset_rows")
+            .select("row_data")
+            .eq("document_name", document_name)
+            .limit(500)
+            .execute())
+    rows = [r["row_data"] for r in (resp.data or [])]
+    if not rows:
+        return {}
+
+    col_types = _detect_columns(rows)
+    info: dict = {}
+    for col, ctype in col_types.items():
+        if ctype == "empty":
+            continue
+        if ctype == "categorical":
+            vals = sorted({str(r.get(col, "")).strip() for r in rows
+                           if r.get(col) and str(r.get(col)).strip()})[:100]
+            info[col] = {"type": ctype, "values": vals}
+        else:
+            info[col] = {"type": ctype, "values": []}
+    return info
+
+
 # ── Column type detection ─────────────────────────────────────────────────────
 
 def _to_float(v) -> float | None:
@@ -134,7 +163,6 @@ def _agg_by_month(rows: list[dict], month_col: str,
         raw = str(row.get(month_col) or "").strip()
         k = raw.capitalize()
         if k not in MONTH_ORDER:
-            # Try extracting from ISO date
             m = re.match(r"\d{4}-(\d{2})-\d{2}", raw)
             if m:
                 idx = int(m.group(1)) - 1
@@ -168,6 +196,24 @@ def _filter_by_quarter(rows: list[dict], date_col: str,
     return filtered or rows
 
 
+# ── Column value filters ──────────────────────────────────────────────────────
+
+def _apply_filters(rows: list[dict], filters: dict) -> list[dict]:
+    """Apply column=value equality filters. Falls back to all rows if result is empty."""
+    if not filters:
+        return rows
+    result = []
+    for row in rows:
+        match = all(
+            str(row.get(col, "")).strip() == str(val).strip()
+            for col, val in filters.items()
+            if val
+        )
+        if match:
+            result.append(row)
+    return result if result else rows
+
+
 # ── Chart colour palettes ─────────────────────────────────────────────────────
 
 _BAR_COLORS = [
@@ -181,18 +227,91 @@ _DONUT_COLORS = [
 _LINE_COLOR = "#8b5cf6"
 
 
+# ── Custom chart builder ──────────────────────────────────────────────────────
+
+def _build_custom_chart(chart_id: str, cfg: dict, rows: list[dict]) -> dict | None:
+    """Build a single Chart.js config from explicit user config."""
+    cat_col = cfg.get("cat_col", "")
+    num_col = cfg.get("num_col", "")
+    ctype   = cfg.get("chart_type", "bar")
+
+    if not cat_col or not num_col:
+        return None
+
+    title = f"Sum of {num_col} by {cat_col}"
+
+    if ctype == "line":
+        labels, values = _agg_by_month(rows, cat_col, num_col)
+        if not labels:
+            labels, values = _agg_by_cat(rows, cat_col, num_col)
+        return {
+            "id": chart_id, "type": "line", "title": title,
+            "labels": labels,
+            "datasets": [{
+                "label": num_col, "data": values,
+                "borderColor": _LINE_COLOR,
+                "backgroundColor": "rgba(139,92,246,0.12)",
+                "tension": 0.4, "fill": True,
+                "pointBackgroundColor": _LINE_COLOR, "pointRadius": 4,
+            }],
+            "indexAxis": "x",
+        }
+
+    elif ctype == "doughnut":
+        labels, values = _agg_by_cat(rows, cat_col, num_col, top_n=8)
+        return {
+            "id": chart_id, "type": "doughnut", "title": title,
+            "labels": labels,
+            "datasets": [{
+                "data": values,
+                "backgroundColor": _DONUT_COLORS[:len(values)],
+                "borderWidth": 2, "borderColor": "#ffffff",
+            }],
+        }
+
+    elif ctype == "bar_v":
+        labels, values = _agg_by_cat(rows, cat_col, num_col, top_n=8)
+        return {
+            "id": chart_id, "type": "bar", "title": title,
+            "labels": labels,
+            "datasets": [{
+                "label": num_col, "data": values,
+                "backgroundColor": _DONUT_COLORS[:len(values)],
+                "borderRadius": 4,
+            }],
+            "indexAxis": "x",
+        }
+
+    else:  # "bar" = horizontal (default)
+        labels, values = _agg_by_cat(rows, cat_col, num_col, top_n=8)
+        return {
+            "id": chart_id, "type": "bar", "title": title,
+            "labels": labels,
+            "datasets": [{
+                "label": num_col, "data": values,
+                "backgroundColor": _BAR_COLORS[:len(values)],
+                "borderRadius": 4,
+            }],
+            "indexAxis": "y",
+        }
+
+
 # ── Main builder ──────────────────────────────────────────────────────────────
 
-def build_dashboard(document_name: str, quarter: str | None = None) -> dict:
+def build_dashboard(document_name: str, quarter: str | None = None,
+                    filters: dict | None = None,
+                    chart_configs: list[dict] | None = None) -> dict:
     """
-    Returns full dashboard config:
-    { kpis, charts, has_quarters, total_rows, columns, document_name }
+    Returns full dashboard config.
+    - filters:      {col: value} — equality filter applied after quarter filter
+    - chart_configs: list of {enabled, cat_col, num_col, chart_type}
+                     If None → auto-generate charts from column detection
     """
     rows = _fetch_rows(document_name)
     if not rows:
         return {"error": "No structured data found for this document."}
 
-    col_types = _detect_columns(rows)
+    col_types     = _detect_columns(rows)
     numeric_cols  = [c for c, t in col_types.items() if t == "numeric"]
     cat_cols      = [c for c, t in col_types.items() if t == "categorical"]
     month_cols    = [c for c, t in col_types.items() if t in ("month", "date")]
@@ -201,6 +320,10 @@ def build_dashboard(document_name: str, quarter: str | None = None) -> dict:
     time_col = month_cols[0] if month_cols else None
     if quarter and time_col:
         rows = _filter_by_quarter(rows, time_col, quarter)
+
+    # Column value filters
+    if filters:
+        rows = _apply_filters(rows, filters)
 
     total_rows = len(rows)
 
@@ -217,111 +340,110 @@ def build_dashboard(document_name: str, quarter: str | None = None) -> dict:
         kpis.append({"label": "Total Records", "value": str(total_rows), "raw": total_rows})
 
     # ── Charts ───────────────────────────────────────────────────────────────
-    charts = []
+    if chart_configs:
+        # Custom mode: user-specified per-slot config
+        charts = []
+        for i, cfg in enumerate(chart_configs):
+            if not cfg.get("enabled", True):
+                continue
+            chart = _build_custom_chart(f"chart{i + 1}", cfg, rows)
+            if chart:
+                charts.append(chart)
+    else:
+        # Auto mode: infer from column types
+        charts = []
 
-    # Chart 1: Horizontal bar — cat[0] vs num[0]
-    if cat_cols and numeric_cols:
-        labels, values = _agg_by_cat(rows, cat_cols[0], numeric_cols[0])
-        charts.append({
-            "id": "chart1", "type": "bar",
-            "title": f"Sum of {numeric_cols[0]} by {cat_cols[0]}",
-            "labels": labels,
-            "datasets": [{
-                "label": numeric_cols[0],
-                "data":  values,
-                "backgroundColor": _BAR_COLORS[:len(values)],
-                "borderRadius": 4,
-            }],
-            "indexAxis": "y",
-        })
+        # Chart 1: Horizontal bar — cat[0] vs num[0]
+        if cat_cols and numeric_cols:
+            labels, values = _agg_by_cat(rows, cat_cols[0], numeric_cols[0])
+            charts.append({
+                "id": "chart1", "type": "bar",
+                "title": f"Sum of {numeric_cols[0]} by {cat_cols[0]}",
+                "labels": labels,
+                "datasets": [{
+                    "label": numeric_cols[0], "data": values,
+                    "backgroundColor": _BAR_COLORS[:len(values)],
+                    "borderRadius": 4,
+                }],
+                "indexAxis": "y",
+            })
 
-    # Chart 2: Doughnut — cat[1] (or cat[0]) vs num[0]
-    donut_cat = cat_cols[1] if len(cat_cols) > 1 else (cat_cols[0] if cat_cols else None)
-    if donut_cat and numeric_cols:
-        labels, values = _agg_by_cat(rows, donut_cat, numeric_cols[0], top_n=6)
-        charts.append({
-            "id": "chart2", "type": "doughnut",
-            "title": f"Sum of {numeric_cols[0]} by {donut_cat}",
-            "labels": labels,
-            "datasets": [{
-                "data": values,
-                "backgroundColor": _DONUT_COLORS[:len(values)],
-                "borderWidth": 2,
-                "borderColor": "#ffffff",
-            }],
-        })
+        # Chart 2: Doughnut — cat[1] vs num[0]
+        donut_cat = cat_cols[1] if len(cat_cols) > 1 else (cat_cols[0] if cat_cols else None)
+        if donut_cat and numeric_cols:
+            labels, values = _agg_by_cat(rows, donut_cat, numeric_cols[0], top_n=6)
+            charts.append({
+                "id": "chart2", "type": "doughnut",
+                "title": f"Sum of {numeric_cols[0]} by {donut_cat}",
+                "labels": labels,
+                "datasets": [{
+                    "data": values,
+                    "backgroundColor": _DONUT_COLORS[:len(values)],
+                    "borderWidth": 2, "borderColor": "#ffffff",
+                }],
+            })
 
-    # Chart 3: Horizontal bar — cat[0] vs num[1]
-    if cat_cols and len(numeric_cols) >= 2:
-        labels, values = _agg_by_cat(rows, cat_cols[0], numeric_cols[1])
-        charts.append({
-            "id": "chart3", "type": "bar",
-            "title": f"Sum of {numeric_cols[1]} by {cat_cols[0]}",
-            "labels": labels,
-            "datasets": [{
-                "label": numeric_cols[1],
-                "data":  values,
-                "backgroundColor": _BAR_COLORS[:len(values)],
-                "borderRadius": 4,
-            }],
-            "indexAxis": "y",
-        })
+        # Chart 3: Horizontal bar — cat[0] vs num[1]
+        if cat_cols and len(numeric_cols) >= 2:
+            labels, values = _agg_by_cat(rows, cat_cols[0], numeric_cols[1])
+            charts.append({
+                "id": "chart3", "type": "bar",
+                "title": f"Sum of {numeric_cols[1]} by {cat_cols[0]}",
+                "labels": labels,
+                "datasets": [{
+                    "label": numeric_cols[1], "data": values,
+                    "backgroundColor": _BAR_COLORS[:len(values)],
+                    "borderRadius": 4,
+                }],
+                "indexAxis": "y",
+            })
 
-    # Chart 4: Doughnut — cat[2] vs num[1] (multi-series style)
-    if len(cat_cols) >= 2 and len(numeric_cols) >= 2:
-        labels2, vals_n0 = _agg_by_cat(rows, cat_cols[0], numeric_cols[0], top_n=5)
-        _, vals_n1 = _agg_by_cat(rows, cat_cols[0], numeric_cols[1], top_n=5)
-        charts.append({
-            "id": "chart4", "type": "doughnut",
-            "title": f"Sum of {numeric_cols[0]} and {numeric_cols[1]} by {cat_cols[0]}",
-            "labels": labels2,
-            "datasets": [
-                {
-                    "label": numeric_cols[0],
-                    "data": vals_n0,
+        # Chart 4: Doughnut — cat[0], num[0]
+        if len(cat_cols) >= 2 and len(numeric_cols) >= 2:
+            labels2, vals_n0 = _agg_by_cat(rows, cat_cols[0], numeric_cols[0], top_n=5)
+            charts.append({
+                "id": "chart4", "type": "doughnut",
+                "title": f"Sum of {numeric_cols[0]} and {numeric_cols[1]} by {cat_cols[0]}",
+                "labels": labels2,
+                "datasets": [{
+                    "label": numeric_cols[0], "data": vals_n0,
                     "backgroundColor": _DONUT_COLORS[:len(labels2)],
-                    "borderWidth": 2,
-                    "borderColor": "#ffffff",
-                },
-            ],
-        })
+                    "borderWidth": 2, "borderColor": "#ffffff",
+                }],
+            })
 
-    # Chart 5: Vertical bar — cat[2] or cat[1] vs num[0] (top customers style)
-    bar_cat = cat_cols[2] if len(cat_cols) > 2 else (cat_cols[1] if len(cat_cols) > 1 else None)
-    if bar_cat and numeric_cols:
-        labels, values = _agg_by_cat(rows, bar_cat, numeric_cols[0], top_n=6)
-        charts.append({
-            "id": "chart5", "type": "bar",
-            "title": f"Sum of {numeric_cols[0]} by {bar_cat}",
-            "labels": labels,
-            "datasets": [{
-                "label": numeric_cols[0],
-                "data":  values,
-                "backgroundColor": _DONUT_COLORS[:len(values)],
-                "borderRadius": 4,
-            }],
-            "indexAxis": "x",
-        })
+        # Chart 5: Vertical bar — cat[2] vs num[0]
+        bar_cat = cat_cols[2] if len(cat_cols) > 2 else (cat_cols[1] if len(cat_cols) > 1 else None)
+        if bar_cat and numeric_cols:
+            labels, values = _agg_by_cat(rows, bar_cat, numeric_cols[0], top_n=6)
+            charts.append({
+                "id": "chart5", "type": "bar",
+                "title": f"Sum of {numeric_cols[0]} by {bar_cat}",
+                "labels": labels,
+                "datasets": [{
+                    "label": numeric_cols[0], "data": values,
+                    "backgroundColor": _DONUT_COLORS[:len(values)],
+                    "borderRadius": 4,
+                }],
+                "indexAxis": "x",
+            })
 
-    # Chart 6: Line — month/date col vs num[0]
-    if time_col and numeric_cols:
-        m_labels, m_values = _agg_by_month(rows, time_col, numeric_cols[0])
-        charts.append({
-            "id": "chart6", "type": "line",
-            "title": f"Sum of {numeric_cols[0]} by {time_col}",
-            "labels": m_labels,
-            "datasets": [{
-                "label": numeric_cols[0],
-                "data":  m_values,
-                "borderColor":     _LINE_COLOR,
-                "backgroundColor": "rgba(139,92,246,0.12)",
-                "tension": 0.4,
-                "fill": True,
-                "pointBackgroundColor": _LINE_COLOR,
-                "pointRadius": 4,
-            }],
-            "indexAxis": "x",
-        })
+        # Chart 6: Line — time_col vs num[0]
+        if time_col and numeric_cols:
+            m_labels, m_values = _agg_by_month(rows, time_col, numeric_cols[0])
+            charts.append({
+                "id": "chart6", "type": "line",
+                "title": f"Sum of {numeric_cols[0]} by {time_col}",
+                "labels": m_labels,
+                "datasets": [{
+                    "label": numeric_cols[0], "data": m_values,
+                    "borderColor": _LINE_COLOR,
+                    "backgroundColor": "rgba(139,92,246,0.12)",
+                    "tension": 0.4, "fill": True,
+                    "pointBackgroundColor": _LINE_COLOR, "pointRadius": 4,
+                }],
+                "indexAxis": "x",
+            })
 
     return {
         "document_name": document_name,
