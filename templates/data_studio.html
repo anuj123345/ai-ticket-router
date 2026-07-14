@@ -49,6 +49,9 @@
     </div>
 
     <div class="ds-controls-actions" id="controlsActions" style="display:none">
+      <button class="btn-ask-ai" id="askAiBtn" onclick="suggestWithAI()">
+        <i class="bi bi-stars me-1"></i> Ask AI
+      </button>
       <button class="btn-configure" id="configToggleBtn" onclick="toggleConfig()">
         <i class="bi bi-sliders me-1"></i> Configure
       </button>
@@ -178,7 +181,7 @@ async function onDatasetChange() {
       body: JSON.stringify({ document_name: currentDoc }),
     });
     columnInfo = await resp.json();
-    buildConfigPanel();
+    buildConfigPanel(null);
   } catch (e) {
     columnInfo = {};
   }
@@ -197,68 +200,124 @@ function toggleConfig() {
 }
 
 /* ── Build the configure panel ─────────────────────────── */
-function buildConfigPanel() {
-  const allCols = Object.keys(columnInfo);
-  const catCols = allCols.filter(c =>
-    columnInfo[c].type === 'categorical' || columnInfo[c].type === 'month' || columnInfo[c].type === 'date'
-  );
-  const numCols = allCols.filter(c => columnInfo[c].type === 'numeric');
+function buildConfigPanel(prefillConfigs) {
+  const allCols  = Object.keys(columnInfo);
+  // "clean" categorical — good default group-by dimensions
+  const catCols  = allCols.filter(c => columnInfo[c].type === 'categorical');
+  const timeCols = allCols.filter(c => columnInfo[c].type === 'month' || columnInfo[c].type === 'date');
+  const numCols  = allCols.filter(c => columnInfo[c].type === 'numeric');
+  // high-cardinality available for manual pick but not in defaults
+  const hiCols   = allCols.filter(c => columnInfo[c].type === 'high_cardinality');
 
-  // Reset active filters (new dataset)
-  activeFilters = [];
-  renderFilterChips();
+  // X-axis dropdown: clean cats + time cols, then high-cardinality with label
+  const xAxisCols = [...catCols, ...timeCols];
 
-  // Populate filter column dropdown
+  // Reset active filters when dataset changes
+  if (!prefillConfigs) {
+    activeFilters = [];
+    renderFilterChips();
+  }
+
+  // Filter column dropdown — only clean categoricals (high-cardinality has too many unique values)
   const filterColSel = document.getElementById('filterColSelect');
   filterColSel.innerHTML = '<option value="">— Column —</option>' +
     catCols.map(c => `<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
   document.getElementById('filterValSelect').innerHTML = '<option value="">— Value —</option>';
 
-  // Build 6 chart slots with sensible defaults
-  const defaults = [
-    { cat: catCols[0]||'', num: numCols[0]||'', type: 'bar',      enabled: true  },
-    { cat: (catCols[1]||catCols[0])||'', num: numCols[0]||'', type: 'doughnut', enabled: true  },
-    { cat: catCols[0]||'', num: (numCols[1]||numCols[0])||'', type: 'bar', enabled: numCols.length > 1 },
-    { cat: catCols[0]||'', num: (numCols[0])||'', type: 'doughnut', enabled: catCols.length > 1 && numCols.length > 1 },
-    { cat: (catCols[2]||catCols[1]||catCols[0])||'', num: numCols[0]||'', type: 'bar_v', enabled: catCols.length > 1 },
-    { cat: catCols[0]||'', num: numCols[0]||'', type: 'line', enabled: false },
+  // Default slot assignments (smart: use clean cols only)
+  const defaults = prefillConfigs || [
+    { cat: catCols[0]||'', num: numCols[0]||'', type: 'bar',      enabled: !!(catCols[0] && numCols[0]) },
+    { cat: catCols[1]||catCols[0]||'', num: numCols[0]||'', type: 'doughnut', enabled: catCols.length >= 2 },
+    { cat: catCols[0]||'', num: numCols[1]||numCols[0]||'', type: 'bar',      enabled: numCols.length >= 2 },
+    { cat: catCols[0]||'', num: numCols[0]||'', type: 'doughnut', enabled: catCols.length >= 2 && numCols.length >= 2 },
+    { cat: catCols[2]||catCols[1]||catCols[0]||'', num: numCols[0]||'', type: 'bar_v', enabled: catCols.length >= 3 },
+    { cat: timeCols[0]||catCols[0]||'', num: numCols[0]||'', type: 'line', enabled: timeCols.length > 0 },
   ];
+
+  // X-axis options: clean + time first, then high-cardinality with warning label
+  const buildXOptions = (selected) => {
+    let opts = '<option value="">— X-axis —</option>';
+    opts += xAxisCols.map(c =>
+      `<option value="${escHtml(c)}" ${c===selected?'selected':''}>${escHtml(c)}</option>`
+    ).join('');
+    if (hiCols.length) {
+      opts += `<optgroup label="Many unique values (use with care)">`;
+      opts += hiCols.map(c =>
+        `<option value="${escHtml(c)}" ${c===selected?'selected':''}>${escHtml(c)}</option>`
+      ).join('');
+      opts += '</optgroup>';
+    }
+    return opts;
+  };
+
+  const buildYOptions = (selected) =>
+    '<option value="">— Y-axis —</option>' +
+    numCols.map(c =>
+      `<option value="${escHtml(c)}" ${c===selected?'selected':''}>${escHtml(c)}</option>`
+    ).join('');
+
+  const buildTypeOptions = (selected) =>
+    Object.entries(CHART_TYPE_LABELS).map(([v, l]) =>
+      `<option value="${v}" ${v===selected?'selected':''}>${l}</option>`
+    ).join('');
 
   const slotsDiv = document.getElementById('chartSlots');
   slotsDiv.innerHTML = '';
 
   defaults.forEach((slot, i) => {
+    const enabled = slot.enabled !== false;
     const row = document.createElement('div');
-    row.className = 'chart-slot-row';
+    row.className = 'chart-slot-row' + (enabled ? '' : ' slot-disabled');
     row.id = `slot${i}`;
-
-    const catOptions = allCols.map(c =>
-      `<option value="${escHtml(c)}" ${c===slot.cat?'selected':''}>${escHtml(c)}</option>`
-    ).join('');
-    const numOptions = numCols.map(c =>
-      `<option value="${escHtml(c)}" ${c===slot.num?'selected':''}>${escHtml(c)}</option>`
-    ).join('');
-    const typeOptions = Object.entries(CHART_TYPE_LABELS).map(([v,l]) =>
-      `<option value="${v}" ${v===slot.type?'selected':''}>${l}</option>`
-    ).join('');
-
     row.innerHTML = `
       <label class="slot-toggle-wrap">
-        <input type="checkbox" id="slot${i}Enabled" ${slot.enabled?'checked':''} onchange="updateSlotState(${i})">
+        <input type="checkbox" id="slot${i}Enabled" ${enabled?'checked':''} onchange="updateSlotState(${i})">
         <span class="slot-num">Chart ${i+1}</span>
       </label>
-      <select id="slot${i}Cat" class="slot-select" ${!slot.enabled?'disabled':''}>
-        <option value="">— X-axis —</option>${catOptions}
+      <select id="slot${i}Cat" class="slot-select" ${!enabled?'disabled':''}>
+        ${buildXOptions(slot.cat_col || slot.cat || '')}
       </select>
-      <select id="slot${i}Num" class="slot-select" ${!slot.enabled?'disabled':''}>
-        <option value="">— Y-axis —</option>${numOptions}
+      <select id="slot${i}Num" class="slot-select" ${!enabled?'disabled':''}>
+        ${buildYOptions(slot.num_col || slot.num || '')}
       </select>
-      <select id="slot${i}Type" class="slot-select slot-type-sel" ${!slot.enabled?'disabled':''}>
-        ${typeOptions}
+      <select id="slot${i}Type" class="slot-select slot-type-sel" ${!enabled?'disabled':''}>
+        ${buildTypeOptions(slot.chart_type || slot.type || 'bar')}
       </select>
     `;
     slotsDiv.appendChild(row);
   });
+}
+
+/* ── Ask AI ─────────────────────────────────────────────── */
+async function suggestWithAI() {
+  if (!currentDoc) return;
+  const btn = document.getElementById('askAiBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Thinking…';
+
+  try {
+    const resp = await fetch('/data-studio/suggest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document_name: currentDoc }),
+    });
+    const data = await resp.json();
+    if (data.error || !data.chart_configs?.length) {
+      alert('AI could not suggest charts for this dataset. Try configuring manually.');
+      return;
+    }
+    // Populate slots with AI suggestions
+    buildConfigPanel(data.chart_configs);
+    // Open the configure panel so user can see what AI picked
+    if (!configOpen) toggleConfig();
+    // Apply immediately
+    applyDashboard();
+  } catch (e) {
+    alert('Failed to reach AI suggestion endpoint.');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-stars me-1"></i> Ask AI';
+  }
 }
 
 function updateSlotState(i) {
@@ -374,8 +433,7 @@ function applyDashboard() {
 }
 
 function resetToAuto() {
-  // Re-build the slot defaults without changing filters
-  buildConfigPanel();
+  buildConfigPanel(null);
   applyDashboard();
 }
 
@@ -526,6 +584,15 @@ function escHtml(s) {
 .ds-qtr-pill.active { background: var(--primary); border-color: var(--primary); color: #fff; }
 
 .ds-controls-actions { display: flex; align-items: flex-end; gap: 8px; margin-left: auto; }
+
+.btn-ask-ai {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border: none; color: #fff; cursor: pointer; transition: opacity 0.15s;
+}
+.btn-ask-ai:hover   { opacity: 0.88; }
+.btn-ask-ai:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .btn-configure {
   display: inline-flex; align-items: center; gap: 4px;

@@ -71,9 +71,9 @@ def get_column_info(document_name: str) -> dict:
     col_types = _detect_columns(rows)
     info: dict = {}
     for col, ctype in col_types.items():
-        if ctype == "empty":
-            continue
-        if ctype == "categorical":
+        if ctype in ("empty", "url"):
+            continue  # URLs are useless as chart labels
+        if ctype in ("categorical", "high_cardinality"):
             vals = sorted({str(r.get(col, "")).strip() for r in rows
                            if r.get(col) and str(r.get(col)).strip()})[:100]
             info[col] = {"type": ctype, "values": vals}
@@ -92,7 +92,13 @@ def _to_float(v) -> float | None:
 
 
 def _detect_columns(rows: list[dict]) -> dict[str, str]:
-    """Classify each column as numeric / month / date / categorical / empty."""
+    """
+    Classify each column as:
+      numeric / month / date / url / categorical / high_cardinality / empty
+
+    url            — values are HTTP URLs (skip in auto charts)
+    high_cardinality — too many unique values to be a useful group-by (IDs, etc.)
+    """
     if not rows:
         return {}
     all_keys = list(rows[0].keys())
@@ -127,7 +133,23 @@ def _detect_columns(rows: list[dict]) -> dict[str, str]:
             col_types[col] = "date"
             continue
 
+        # URL check
+        url_hits = sum(1 for v in sample
+                       if str(v).strip().startswith(("http://", "https://")))
+        if url_hits / len(sample) > 0.5:
+            col_types[col] = "url"
+            continue
+
         col_types[col] = "categorical"
+
+    # Cardinality check — if a categorical column has nearly as many unique
+    # values as rows, it's an ID/slug column, not a useful group-by dimension.
+    total = len(rows)
+    for col, ctype in list(col_types.items()):
+        if ctype == "categorical":
+            unique_vals = {str(r.get(col, "")).strip() for r in rows if r.get(col)}
+            if len(unique_vals) > max(20, 0.5 * total):
+                col_types[col] = "high_cardinality"
 
     return col_types
 
@@ -453,3 +475,97 @@ def build_dashboard(document_name: str, quarter: str | None = None,
         "has_quarters":  bool(time_col),
         "columns":       col_types,
     }
+
+
+# ── AI chart suggestions ──────────────────────────────────────────────────────
+
+def suggest_charts(document_name: str) -> list[dict]:
+    """
+    Ask the LLM to pick 4-6 meaningful chart combinations from the dataset's
+    columns. Returns a list of chart_config dicts ready for build_dashboard().
+    """
+    import json as _json
+    import os
+    from openai import OpenAI
+
+    # Sample rows for context
+    db = get_client()
+    resp = (db.table("dataset_rows")
+              .select("row_data")
+              .eq("document_name", document_name)
+              .limit(10)
+              .execute())
+    sample_rows = [r["row_data"] for r in (resp.data or [])]
+    if not sample_rows:
+        return []
+
+    col_types    = _detect_columns(sample_rows)
+    numeric_cols = [c for c, t in col_types.items() if t == "numeric"]
+    cat_cols     = [c for c, t in col_types.items() if t == "categorical"]
+
+    if not numeric_cols or not cat_cols:
+        return []
+
+    prompt = f"""You are a data analyst. Suggest 4-6 insightful charts for this dataset.
+
+Dataset name: {document_name}
+Numeric columns (Y-axis / metrics): {numeric_cols}
+Categorical columns (X-axis / group-by): {cat_cols}
+
+Sample rows (first 3):
+{_json.dumps(sample_rows[:3], indent=2)}
+
+Return ONLY a valid JSON array — no explanation, no markdown fences. Each element:
+{{"cat_col": "<categorical column>", "num_col": "<numeric column>", "chart_type": "bar|bar_v|doughnut|line", "enabled": true}}
+
+Rules:
+- Use only the column names listed above exactly as written.
+- Prefer columns with meaningful names (not IDs, slugs, or URLs).
+- Vary chart types for visual interest.
+- Choose combinations that tell a clear story about the data."""
+
+    llm = OpenAI(
+        base_url=os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
+        api_key=os.environ.get("NVIDIA_API_KEY", ""),
+    )
+    try:
+        llm_resp = llm.chat.completions.create(
+            model="meta/llama-3.1-8b-instruct",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=700,
+        )
+        text = llm_resp.choices[0].message.content.strip()
+
+        # Extract JSON array (LLM may wrap it in prose)
+        match = re.search(r'\[[\s\S]*\]', text)
+        if not match:
+            return []
+
+        raw_configs = _json.loads(match.group(0))
+
+        valid_cat   = set(cat_cols)
+        valid_num   = set(numeric_cols)
+        valid_types = {"bar", "bar_v", "doughnut", "line"}
+        configs     = []
+
+        for cfg in raw_configs[:6]:
+            cat   = str(cfg.get("cat_col", "")).strip()
+            num   = str(cfg.get("num_col", "")).strip()
+            ctype = str(cfg.get("chart_type", "bar")).strip()
+            if cat in valid_cat and num in valid_num and ctype in valid_types:
+                configs.append({
+                    "enabled":    True,
+                    "cat_col":    cat,
+                    "num_col":    num,
+                    "chart_type": ctype,
+                })
+
+        # Pad to 6 slots so the UI always has 6 rows
+        while len(configs) < 6:
+            configs.append({"enabled": False, "cat_col": "", "num_col": "", "chart_type": "bar"})
+
+        return configs[:6]
+
+    except Exception:
+        return []

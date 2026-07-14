@@ -492,6 +492,21 @@ def data_studio():
     return render_template("data_studio.html", documents=docs)
 
 
+@app.route("/data-studio/suggest", methods=["POST"])
+@login_required
+def data_studio_suggest():
+    from services.data_engine import suggest_charts
+    body = request.get_json(silent=True) or {}
+    doc  = body.get("document_name", "").strip()
+    if not doc:
+        return jsonify({"error": "document_name required"}), 400
+    try:
+        configs = suggest_charts(doc)
+        return jsonify({"chart_configs": configs})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/data-studio/columns", methods=["POST"])
 @login_required
 def data_studio_columns():
