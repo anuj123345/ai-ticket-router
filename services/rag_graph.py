@@ -121,49 +121,84 @@ OUTDATED_REASON: reason if applicable"""
 # Retrieval
 # ---------------------------------------------------------------------------
 
-def _semantic_search(question: str, doc_filter: Optional[str] = None, k: int = 10) -> list:
+def _normalize_doc_filter(doc_filter):
+    """
+    Normalise doc_filter to one of:
+      None          → search all documents
+      str           → restrict to a single document
+      set[str]      → restrict to multiple documents
+    Accepts str, list, set, or None as input.
+    """
+    if not doc_filter:
+        return None
+    if isinstance(doc_filter, str):
+        return doc_filter
+    docs = set(doc_filter) if not isinstance(doc_filter, set) else doc_filter
+    if len(docs) == 0:
+        return None
+    if len(docs) == 1:
+        return next(iter(docs))
+    return docs
+
+
+def _semantic_search(question: str, doc_filter=None, k: int = 10) -> list:
     """pgvector cosine similarity via match_doc_chunks RPC."""
     emb = _query_embedding(question)
     if emb is None:
         return []
+    # For multi-doc we skip RPC-level filter and post-filter in Python
+    is_multi = isinstance(doc_filter, set)
     try:
-        params = {"query_embedding": emb, "match_threshold": 0.3, "match_count": k}
-        if doc_filter:
+        params = {
+            "query_embedding": emb,
+            "match_threshold": 0.3,
+            "match_count": k * (max(2, len(doc_filter)) if is_multi else 1),
+        }
+        if isinstance(doc_filter, str):
             params["doc_name_filter"] = doc_filter
-        return get_client().rpc("match_doc_chunks", params).execute().data or []
-    except Exception:
-        return []
-
-
-def _fts_fallback(question: str, doc_filter: Optional[str] = None, k: int = 10) -> list:
-    """PostgreSQL full-text search fallback."""
-    try:
-        resp = get_client().rpc("search_docs", {
-            "query_text":  question,
-            "max_results": k * (3 if doc_filter else 1),
-        }).execute()
-        rows = resp.data or []
-        if doc_filter:
-            rows = [r for r in rows if r.get("document_name") == doc_filter]
+        rows = get_client().rpc("match_doc_chunks", params).execute().data or []
+        if is_multi:
+            rows = [r for r in rows if r.get("document_name") in doc_filter]
         return rows[:k]
     except Exception:
         return []
 
 
-def _ilike_fallback(question: str, doc_filter: Optional[str] = None, k: int = 8) -> list:
+def _fts_fallback(question: str, doc_filter=None, k: int = 10) -> list:
+    """PostgreSQL full-text search fallback."""
+    is_multi = isinstance(doc_filter, set)
+    try:
+        resp = get_client().rpc("search_docs", {
+            "query_text":  question,
+            "max_results": k * (max(3, len(doc_filter)) if is_multi else (3 if doc_filter else 1)),
+        }).execute()
+        rows = resp.data or []
+        if isinstance(doc_filter, str):
+            rows = [r for r in rows if r.get("document_name") == doc_filter]
+        elif is_multi:
+            rows = [r for r in rows if r.get("document_name") in doc_filter]
+        return rows[:k]
+    except Exception:
+        return []
+
+
+def _ilike_fallback(question: str, doc_filter=None, k: int = 8) -> list:
     """ILIKE keyword search -- last resort."""
     stop = {"what", "is", "the", "how", "do", "i", "can", "get", "my", "a", "an", "are",
             "to", "for", "of", "in", "on", "at", "and", "or"}
     words = [w for w in re.findall(r"\b[a-zA-Z]\w+\b", question.lower())
              if w not in stop and len(w) > 3]
+    is_multi = isinstance(doc_filter, set)
     seen, results = set(), []
     for word in words[:4]:
         try:
             q = (get_client().table("doc_chunks")
                  .select("id,document_id,document_name,content")
                  .ilike("content", f"%{word}%"))
-            if doc_filter:
+            if isinstance(doc_filter, str):
                 q = q.eq("document_name", doc_filter)
+            elif is_multi:
+                q = q.in_("document_name", list(doc_filter))
             for row in (q.limit(k).execute().data or []):
                 if row["id"] not in seen:
                     seen.add(row["id"])
@@ -175,7 +210,7 @@ def _ilike_fallback(question: str, doc_filter: Optional[str] = None, k: int = 8)
     return results[:k]
 
 
-def _retrieve_chunks(question: str, doc_filter: Optional[str]) -> list:
+def _retrieve_chunks(question: str, doc_filter) -> list:
     """Semantic -> FTS -> ILIKE, deduplicated."""
     chunks = _semantic_search(question, doc_filter)
     if not chunks:
@@ -352,27 +387,44 @@ def _parse_response(raw: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def run_rag(question: str, history: list = None,
-            doc_filter: str = None, model: str = None) -> dict:
+            doc_filter=None, model: str = None) -> dict:
     """
     Full RAG pipeline: retrieve -> generate -> parse -> store.
+    doc_filter: None (all), str (single doc), list/set (multiple docs).
     Returns {answer, sources, possibly_outdated, outdated_reason, conversation_id, has_docs}
     """
-    history = history or []
-    model   = model if model in AVAILABLE_MODELS else DEFAULT_MODEL
-    cfg     = AVAILABLE_MODELS[model]
+    history    = history or []
+    model      = model if model in AVAILABLE_MODELS else DEFAULT_MODEL
+    cfg        = AVAILABLE_MODELS[model]
+    doc_filter = _normalize_doc_filter(doc_filter)
 
     # 1. Retrieve
-    target_structured = (
-        doc_filter
-        if doc_filter and doc_filter.rsplit(".", 1)[-1].lower() in STRUCTURED_EXTS
-        else None
-    )
+    # Determine if we're targeting one or more structured (CSV/XLSX) docs
+    if isinstance(doc_filter, str):
+        target_structured = (
+            doc_filter
+            if doc_filter.rsplit(".", 1)[-1].lower() in STRUCTURED_EXTS
+            else None
+        )
+    elif isinstance(doc_filter, set):
+        # All structured docs in the selection
+        target_structured = [d for d in doc_filter
+                              if d.rsplit(".", 1)[-1].lower() in STRUCTURED_EXTS] or None
+    else:
+        target_structured = None
 
     precomputed = None
     doc_chunks  = []
 
     if target_structured:
-        precomputed = _python_aggregate(target_structured, question)
+        # Aggregate each structured doc and concatenate results
+        docs_to_agg = [target_structured] if isinstance(target_structured, str) else target_structured
+        parts = []
+        for sd in docs_to_agg:
+            agg = _python_aggregate(sd, question)
+            if agg:
+                parts.append(f"=== {sd} ===\n{agg}")
+        precomputed = "\n\n".join(parts) if parts else None
         doc_chunks  = _retrieve_chunks(question, doc_filter)[:3]
     else:
         doc_chunks = _retrieve_chunks(question, doc_filter)

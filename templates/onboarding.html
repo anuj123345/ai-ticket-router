@@ -14,22 +14,23 @@
     </a>
   </div>
 
-  <!-- ── Document selector ───────────────────────────────────────────── -->
+  <!-- ── Document selector (multi-select) ────────────────────────────── -->
   {% if documents %}
   <div class="ob-doc-selector">
     <span class="ob-doc-selector-label"><i class="bi bi-folder2-open me-1"></i>Search in:</span>
     <div class="ob-doc-pills" id="docPills">
-      <button class="ob-doc-pill active" data-doc="" onclick="selectDoc(this)">
+      <button class="ob-doc-pill ob-doc-pill-all active" id="pillAll" onclick="selectAllDocs()">
         <i class="bi bi-files"></i> All documents
       </button>
       {% for doc in documents %}
-      <button class="ob-doc-pill" data-doc="{{ doc.name }}" onclick="selectDoc(this)"
+      <button class="ob-doc-pill" data-doc="{{ doc.name }}" onclick="toggleDoc(this)"
         title="{{ doc.name }}">
         <i class="bi bi-file-earmark-{% if doc.file_type == 'pdf' %}pdf{% elif doc.file_type == 'docx' %}word{% elif doc.file_type in ['xlsx','xls','csv'] %}spreadsheet{% else %}text{% endif %}"></i>
         {{ doc.name | truncate(28, True, '…') }}
       </button>
       {% endfor %}
     </div>
+    <div id="selectionHint" class="ob-selection-hint" style="display:none"></div>
   </div>
   {% endif %}
 
@@ -134,16 +135,16 @@ const sidebarTitle      = document.getElementById('sidebarTitle');
 
 const CHAT_KEY = 'smart_search_session';
 const conversationHistory = [];
-let selectedDoc   = '';
+let selectedDocs  = new Set();   // empty = all documents
 let selectedModel = 'meta/llama-3.1-8b-instruct';
-let messageLog    = [];   // serialisable log for sessionStorage
+let messageLog    = [];
 
 function saveSession() {
   try {
     sessionStorage.setItem(CHAT_KEY, JSON.stringify({
       conversationHistory,
       messageLog,
-      selectedDoc,
+      selectedDocs: [...selectedDocs],
       selectedModel,
     }));
   } catch(e) {}
@@ -155,12 +156,16 @@ function restoreSession() {
     if (!saved) return;
     const s = JSON.parse(saved);
     if (s.conversationHistory) conversationHistory.push(...s.conversationHistory);
-    if (s.selectedDoc)   selectDocByName(s.selectedDoc);
+    if (s.selectedDocs && s.selectedDocs.length) {
+      s.selectedDocs.forEach(d => selectedDocs.add(d));
+      _syncPillUI();
+      _updateContextUI();
+    }
     if (s.selectedModel) selectModelByValue(s.selectedModel);
     if (s.messageLog && s.messageLog.length) {
       s.messageLog.forEach(entry => {
         if (entry.type === 'user') {
-          _appendUserMessageDOM(entry.text, entry.doc);
+          _appendUserMessageDOM(entry.text, entry.docs);
         } else if (entry.type === 'assistant') {
           _appendAssistantMessageDOM(entry.data, entry.question);
         }
@@ -184,33 +189,75 @@ function selectModelByValue(modelVal) {
   if (btn) selectModel(btn);
 }
 
-// ── Document selector ─────────────────────────────────────────────────
-function selectDoc(btn) {
-  document.querySelectorAll('.ob-doc-pill').forEach(p => p.classList.remove('active'));
-  btn.classList.add('active');
-  selectDocByName(btn.dataset.doc);
+// ── Document selector (multi-select) ──────────────────────────────────
+function selectAllDocs() {
+  selectedDocs.clear();
+  _syncPillUI();
+  _updateContextUI();
+  saveSession();
 }
 
-function selectDocByName(docName) {
-  selectedDoc = docName;
-
-  // Sync pill UI if called programmatically (e.g. clear button)
-  document.querySelectorAll('.ob-doc-pill').forEach(p => {
-    p.classList.toggle('active', p.dataset.doc === docName);
-  });
-
-  // Context badge in input bar
-  if (docName) {
-    contextBadgeText.textContent = docName;
-    contextBadge.style.display = 'flex';
-    questionInput.placeholder = `Ask about "${docName}"…`;
-    sidebarTitle.textContent = 'Suggested questions';
-    loadSuggestedQuestions(docName);
+function toggleDoc(btn) {
+  const name = btn.dataset.doc;
+  if (selectedDocs.has(name)) {
+    selectedDocs.delete(name);
   } else {
+    selectedDocs.add(name);
+  }
+  _syncPillUI();
+  _updateContextUI();
+  saveSession();
+}
+
+function _syncPillUI() {
+  const allBtn = document.getElementById('pillAll');
+  const isAll  = selectedDocs.size === 0;
+  if (allBtn) allBtn.classList.toggle('active', isAll);
+  document.querySelectorAll('.ob-doc-pill[data-doc]').forEach(p => {
+    p.classList.toggle('active', selectedDocs.has(p.dataset.doc));
+  });
+}
+
+function _updateContextUI() {
+  const hint = document.getElementById('selectionHint');
+  const count = selectedDocs.size;
+
+  if (count === 0) {
+    // All docs mode
     contextBadge.style.display = 'none';
-    questionInput.placeholder = 'Ask a question about the selected document…';
-    sidebarTitle.textContent = 'Suggested questions';
+    questionInput.placeholder  = 'Ask a question across all documents…';
+    if (hint) hint.style.display = 'none';
     renderDefaultStarters();
+  } else if (count === 1) {
+    const name = [...selectedDocs][0];
+    contextBadgeText.textContent = name;
+    contextBadge.style.display   = 'flex';
+    questionInput.placeholder    = `Ask about "${name}"…`;
+    if (hint) hint.style.display = 'none';
+    loadSuggestedQuestions(name);
+  } else {
+    const names = [...selectedDocs];
+    contextBadgeText.textContent = `${count} documents selected`;
+    contextBadge.style.display   = 'flex';
+    questionInput.placeholder    = `Ask across ${count} selected documents…`;
+    if (hint) {
+      hint.textContent    = names.map(n => `• ${n}`).join('  ');
+      hint.style.display  = 'block';
+    }
+    renderDefaultStarters();
+  }
+}
+
+// Legacy compatibility (used by clear button in context badge)
+function selectDocByName(docName) {
+  if (!docName) {
+    selectAllDocs();
+  } else {
+    selectedDocs.clear();
+    selectedDocs.add(docName);
+    _syncPillUI();
+    _updateContextUI();
+    saveSession();
   }
 }
 
@@ -299,10 +346,10 @@ function sendQuestion() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      question:   q,
-      history:    conversationHistory.slice(-5),
-      doc_filter: selectedDoc || null,
-      model:      selectedModel,
+      question:    q,
+      history:     conversationHistory.slice(-5),
+      doc_filters: selectedDocs.size > 0 ? [...selectedDocs] : null,
+      model:       selectedModel,
     }),
   })
   .then(r => r.json())
@@ -319,18 +366,26 @@ function sendQuestion() {
 }
 
 function appendUserMessage(text) {
-  messageLog.push({ type: 'user', text, doc: selectedDoc });
-  _appendUserMessageDOM(text, selectedDoc);
+  const docs = [...selectedDocs];
+  messageLog.push({ type: 'user', text, docs });
+  _appendUserMessageDOM(text, docs);
   saveSession();
 }
 
-function _appendUserMessageDOM(text, doc) {
+function _appendUserMessageDOM(text, docs) {
+  docs = docs || [];
+  let docTag = '';
+  if (docs.length === 1) {
+    docTag = `<div class="ob-msg-doc-tag"><i class="bi bi-funnel-fill"></i> ${escHtml(docs[0])}</div>`;
+  } else if (docs.length > 1) {
+    docTag = `<div class="ob-msg-doc-tag"><i class="bi bi-funnel-fill"></i> ${docs.length} documents</div>`;
+  }
   const div = document.createElement('div');
   div.className = 'ob-msg ob-msg-user';
   div.innerHTML = `
     <div class="ob-msg-body">
       <div class="ob-msg-bubble">${escHtml(text)}</div>
-      ${doc ? `<div class="ob-msg-doc-tag"><i class="bi bi-funnel-fill"></i> ${escHtml(doc)}</div>` : ''}
+      ${docTag}
     </div>
     <div class="ob-msg-avatar ob-msg-avatar-user"><i class="bi bi-person-fill"></i></div>
   `;

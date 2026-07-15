@@ -369,15 +369,25 @@ def onboarding():
 @app.route("/onboarding/chat", methods=["POST"])
 @login_required
 def onboarding_chat():
-    data       = request.get_json(silent=True) or {}
-    question   = data.get("question", "").strip()
-    history    = data.get("history", [])
-    doc_filter = data.get("doc_filter", None)
-    model      = data.get("model", None)
+    data        = request.get_json(silent=True) or {}
+    question    = data.get("question", "").strip()
+    history     = data.get("history", [])
+    doc_filters = data.get("doc_filters", None)  # new: list of doc names
+    doc_filter  = data.get("doc_filter",  None)  # legacy: single doc name
+    model       = data.get("model", None)
+
+    # Normalise: prefer doc_filters (list) over legacy doc_filter (string)
+    if doc_filters and isinstance(doc_filters, list) and len(doc_filters) > 0:
+        effective_filter = doc_filters          # pass list; rag_graph normalises
+    elif doc_filter:
+        effective_filter = doc_filter           # single string (legacy path)
+    else:
+        effective_filter = None                 # all docs
+
     if not question:
         return jsonify({"error": "Question is required."}), 400
     try:
-        result = answer_question(question, history=history, doc_filter=doc_filter, model=model)
+        result = answer_question(question, history=history, doc_filter=effective_filter, model=model)
         return jsonify(result)
     except Exception as e:
         import traceback

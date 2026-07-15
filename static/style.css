@@ -1663,6 +1663,27 @@ footer {
   background: var(--primary);
   color: #fff;
 }
+/* "All documents" pill — lighter style when others are selected */
+.ob-doc-pill-all.active {
+  background: var(--primary);
+  color: #fff;
+}
+/* Individual doc pill — show a check icon when active via ::before */
+.ob-doc-pill[data-doc].active::before {
+  content: '✓ ';
+  font-size: 0.7rem;
+  opacity: 0.9;
+}
+/* Hint line below pills showing selected file names */
+.ob-selection-hint {
+  font-size: 0.75rem;
+  color: var(--text-3);
+  margin-top: 4px;
+  padding-left: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* ── Model selector ── */
 .ob-model-selector {
