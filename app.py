@@ -404,12 +404,19 @@ def onboarding_chat():
 @login_required
 def onboarding_suggest_questions():
     from services.onboarding_agent import suggest_questions
-    data     = request.get_json(silent=True) or {}
-    doc_name = data.get("doc_name", "").strip()
-    if not doc_name:
+    data      = request.get_json(silent=True) or {}
+    doc_names = data.get("doc_names", None)   # new: list of names
+    doc_name  = data.get("doc_name",  "").strip()  # legacy: single name
+
+    if doc_names and isinstance(doc_names, list):
+        names = [n.strip() for n in doc_names if str(n).strip()]
+    elif doc_name:
+        names = [doc_name]
+    else:
         return jsonify({"questions": []}), 400
+
     try:
-        qs = suggest_questions(doc_name)
+        qs = suggest_questions(names)
         return jsonify({"questions": qs})
     except Exception:
         return jsonify({"questions": []}), 500

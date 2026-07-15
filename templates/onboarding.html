@@ -234,17 +234,18 @@ function _updateContextUI() {
     contextBadge.style.display   = 'flex';
     questionInput.placeholder    = `Ask about "${name}"…`;
     if (hint) hint.style.display = 'none';
-    loadSuggestedQuestions(name);
+    loadSuggestedQuestions([name]);
   } else {
     const names = [...selectedDocs];
     contextBadgeText.textContent = `${count} documents selected`;
     contextBadge.style.display   = 'flex';
     questionInput.placeholder    = `Ask across ${count} selected documents…`;
     if (hint) {
-      hint.textContent    = names.map(n => `• ${n}`).join('  ');
-      hint.style.display  = 'block';
+      hint.textContent   = names.map(n => `• ${n}`).join('  ');
+      hint.style.display = 'block';
     }
-    renderDefaultStarters();
+    // Ask AI for cross-doc questions
+    loadSuggestedQuestions(names);
   }
 }
 
@@ -285,11 +286,14 @@ async function loadSuggestedQuestions(docName) {
   startersLoading.style.display = 'flex';
   startersContainer.appendChild(startersLoading);
 
+  // Accept single string or array
+  const docNames = Array.isArray(docName) ? docName : [docName];
+
   try {
     const res  = await fetch('/onboarding/suggest-questions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ doc_name: docName }),
+      body: JSON.stringify({ doc_names: docNames }),
     });
     const data = await res.json();
     const qs   = data.questions || [];

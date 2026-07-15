@@ -454,42 +454,93 @@ def save_verified_qa(conversation_id: int):
         db.table("verified_qa").insert({"question": q, "answer": a}).execute()
 
 
-def suggest_questions(doc_name: str, n: int = 6) -> list[str]:
+def suggest_questions(doc_names: str | list[str], n: int = 6) -> list[str]:
     """
-    Generate n suggested questions for a given document by sampling its content
-    and asking the LLM to propose relevant questions a user might ask.
+    Generate n suggested questions for one or more documents.
+    For multiple docs, includes cross-document comparison questions where relevant.
     """
+    # Normalise to list
+    if isinstance(doc_names, str):
+        doc_names = [doc_names]
+    doc_names = [d for d in doc_names if d]
+    if not doc_names:
+        return []
+
     client = get_client()
     try:
-        # Sample a few chunks from the document
-        resp = (
-            client.table("doc_chunks")
-            .select("content")
-            .eq("document_name", doc_name)
-            .limit(8)
-            .execute()
-        )
-        chunks = resp.data or []
-        if not chunks:
-            return []
-
-        sample = "\n\n".join(c["content"] for c in chunks[:5])
-        ext = doc_name.rsplit(".", 1)[-1].lower()
-
-        if ext in STRUCTURED_EXTS:
-            prompt = (
-                f"You are given a sample of structured data from '{doc_name}':\n\n"
-                f"{sample}\n\n"
-                f"Generate exactly {n} short, specific questions a user might ask about this data. "
-                f"Focus on counts, percentages, filtering, and lookups. "
-                f"Return ONLY a numbered list, one question per line, no explanation."
+        if len(doc_names) == 1:
+            # ── Single doc (original logic) ──────────────────────────────
+            doc_name = doc_names[0]
+            resp = (
+                client.table("doc_chunks")
+                .select("content")
+                .eq("document_name", doc_name)
+                .limit(8)
+                .execute()
             )
+            chunks = resp.data or []
+            if not chunks:
+                return []
+
+            sample = "\n\n".join(c["content"] for c in chunks[:5])
+            ext = doc_name.rsplit(".", 1)[-1].lower()
+
+            if ext in STRUCTURED_EXTS:
+                prompt = (
+                    f"You are given a sample of structured data from '{doc_name}':\n\n"
+                    f"{sample}\n\n"
+                    f"Generate exactly {n} short, specific questions a user might ask about this data. "
+                    f"Focus on counts, percentages, filtering, and lookups. "
+                    f"Return ONLY a numbered list, one question per line, no explanation."
+                )
+            else:
+                prompt = (
+                    f"You are given a sample from the document '{doc_name}':\n\n"
+                    f"{sample}\n\n"
+                    f"Generate exactly {n} short questions an employee might ask about this document. "
+                    f"Make them specific and practical. "
+                    f"Return ONLY a numbered list, one question per line, no explanation."
+                )
+
         else:
+            # ── Multiple docs — generate cross-doc questions ──────────────
+            samples = []
+            has_structured = False
+            for doc in doc_names[:4]:        # cap at 4 to keep context short
+                resp = (
+                    client.table("doc_chunks")
+                    .select("content")
+                    .eq("document_name", doc)
+                    .limit(4)
+                    .execute()
+                )
+                chunks = resp.data or []
+                if chunks:
+                    preview = "\n".join(c["content"] for c in chunks[:3])[:600]
+                    samples.append(f"### {doc}\n{preview}")
+                if doc.rsplit(".", 1)[-1].lower() in STRUCTURED_EXTS:
+                    has_structured = True
+
+            if not samples:
+                return []
+
+            docs_label  = ", ".join(f'"{d}"' for d in doc_names)
+            cross_hint  = (
+                "Include some questions that compare or combine data across the files."
+                if len(doc_names) > 1 else ""
+            )
+            data_hint   = (
+                "Focus on counts, percentages, filtering, lookups, and comparisons."
+                if has_structured
+                else "Make them specific and practical."
+            )
+
             prompt = (
-                f"You are given a sample from the document '{doc_name}':\n\n"
-                f"{sample}\n\n"
-                f"Generate exactly {n} short questions an employee might ask about this document. "
-                f"Make them specific and practical. "
+                f"The user has selected these documents: {docs_label}.\n\n"
+                f"Sample content from each:\n\n"
+                + "\n\n".join(samples)
+                + f"\n\nGenerate exactly {n} short, specific questions a user might ask across these documents. "
+                f"{cross_hint} {data_hint} "
                 f"Return ONLY a numbered list, one question per line, no explanation."
             )
 
@@ -498,17 +549,17 @@ def suggest_questions(doc_name: str, n: int = 6) -> list[str]:
             model=os.environ.get("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct"),
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
-            max_tokens=300,
+            max_tokens=400,
         )
         raw = resp.choices[0].message.content.strip()
 
-        # Parse numbered list
         questions = []
         for line in raw.splitlines():
             line = re.sub(r'^\d+[\.\)]\s*', '', line).strip()
             if line and len(line) > 10:
                 questions.append(line)
         return questions[:n]
+
     except Exception:
         return []
 
