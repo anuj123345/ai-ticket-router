@@ -302,22 +302,55 @@ async function suggestWithAI() {
       body: JSON.stringify({ document_name: currentDoc }),
     });
     const data = await resp.json();
-    if (data.error || !data.chart_configs?.length) {
-      alert('AI could not suggest charts for this dataset. Try configuring manually.');
+    const configs = data.chart_configs || [];
+    const active  = configs.filter(c => c.enabled && c.cat_col && c.num_col);
+
+    if (data.error || active.length === 0) {
+      alert('AI could not find meaningful chart combinations in this dataset.\n\n'
+          + 'This usually means the columns are mostly IDs, URLs, or free text '
+          + 'rather than categories with numbers to measure. Try configuring manually.');
       return;
     }
+
     // Populate slots with AI suggestions
-    buildConfigPanel(data.chart_configs);
+    buildConfigPanel(configs);
     // Open the configure panel so user can see what AI picked
     if (!configOpen) toggleConfig();
     // Apply immediately
     applyDashboard();
+
+    // Tell the user what changed -- otherwise a successful call looks identical
+    // to no call at all.
+    const summary = active
+      .map(c => `${c.num_col} by ${c.cat_col}`)
+      .join(' · ');
+    showAiToast(`AI built ${active.length} chart${active.length > 1 ? 's' : ''}: ${summary}`);
   } catch (e) {
     alert('Failed to reach AI suggestion endpoint.');
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-stars me-1"></i> Ask AI';
   }
+}
+
+function showAiToast(msg) {
+  let el = document.getElementById('aiToast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'aiToast';
+    el.style.cssText =
+      'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);' +
+      'background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;' +
+      'padding:0.75rem 1.25rem;border-radius:10px;font-size:0.875rem;' +
+      'font-weight:500;box-shadow:0 8px 24px rgba(99,102,241,0.35);' +
+      'z-index:9999;max-width:90vw;text-align:center;opacity:0;' +
+      'transition:opacity 0.25s ease';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = '<i class="bi bi-stars me-1"></i> ' + msg;
+  requestAnimationFrame(() => { el.style.opacity = '1'; });
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.style.opacity = '0'; }, 5000);
 }
 
 function updateSlotState(i) {

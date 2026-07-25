@@ -384,7 +384,12 @@ def build_dashboard(document_name: str, quarter: str | None = None,
         kpis.append({"label": "Total Records", "value": str(total_rows), "raw": total_rows})
 
     # ── Charts ───────────────────────────────────────────────────────────────
-    if chart_configs:
+    # Only enter custom mode if at least one slot is actually enabled --
+    # otherwise fall through to auto so the dashboard is never blank.
+    has_enabled = bool(chart_configs) and any(
+        c.get("enabled", True) for c in chart_configs
+    )
+    if has_enabled:
         # Custom mode: user-specified per-slot config
         charts = []
         for i, cfg in enumerate(chart_configs):
@@ -510,12 +515,16 @@ def suggest_charts(document_name: str) -> list[dict]:
     import os
     from openai import OpenAI
 
-    # Sample rows for context
+    # Sample rows for context.
+    # NOTE: must be a large sample -- _detect_columns classifies high_cardinality
+    # by unique-value counts, so a 10-row sample produces a completely different
+    # classification than build_dashboard sees on the full dataset. That mismatch
+    # causes every LLM suggestion to be rejected during validation.
     db = get_client()
     resp = (db.table("dataset_rows")
               .select("row_data")
               .eq("document_name", document_name)
-              .limit(10)
+              .limit(500)
               .execute())
     sample_rows = [r["row_data"] for r in (resp.data or [])]
     if not sample_rows:
@@ -566,16 +575,20 @@ Rules:
 
         raw_configs = _json.loads(match.group(0))
 
-        valid_cat   = set(cat_cols)
-        valid_num   = set(numeric_cols)
+        # Case/whitespace-insensitive lookup so a near-miss from the LLM
+        # resolves to the real column instead of being silently dropped.
+        cat_lookup  = {c.strip().lower(): c for c in cat_cols}
+        num_lookup  = {c.strip().lower(): c for c in numeric_cols}
         valid_types = {"bar", "bar_v", "doughnut", "line"}
         configs     = []
 
         for cfg in raw_configs[:6]:
-            cat   = str(cfg.get("cat_col", "")).strip()
-            num   = str(cfg.get("num_col", "")).strip()
-            ctype = str(cfg.get("chart_type", "bar")).strip()
-            if cat in valid_cat and num in valid_num and ctype in valid_types:
+            cat   = cat_lookup.get(str(cfg.get("cat_col", "")).strip().lower())
+            num   = num_lookup.get(str(cfg.get("num_col", "")).strip().lower())
+            ctype = str(cfg.get("chart_type", "bar")).strip().lower()
+            if ctype not in valid_types:
+                ctype = "bar"
+            if cat and num:
                 configs.append({
                     "enabled":    True,
                     "cat_col":    cat,
