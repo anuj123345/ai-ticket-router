@@ -22,16 +22,38 @@ QUARTER_MAP = {
 # ── Data fetching ─────────────────────────────────────────────────────────────
 
 def get_data_documents() -> list[dict]:
-    """Return all documents that have structured row data."""
+    """
+    Return all documents that have structured row data.
+
+    NOTE: we cannot do `select document_name from dataset_rows` and dedupe in
+    Python -- PostgREST caps the response at 1000 rows, so a single large
+    dataset swamps the result and hides every other document. Instead we list
+    tabular documents and probe each one for at least one row.
+    """
     client = get_client()
     try:
-        resp = (client.table("dataset_rows")
-                .select("document_name")
-                .execute())
-        names = sorted({r["document_name"] for r in (resp.data or [])})
-        return [{"name": n} for n in names]
+        docs = (client.table("documents")
+                .select("name, file_type")
+                .execute()).data or []
     except Exception:
         return []
+
+    names = []
+    for doc in docs:
+        if (doc.get("file_type") or "").lower() not in ("xlsx", "xls", "csv"):
+            continue
+        name = doc["name"]
+        try:
+            probe = (client.table("dataset_rows")
+                     .select("id")
+                     .eq("document_name", name)
+                     .limit(1)
+                     .execute())
+            if probe.data:
+                names.append(name)
+        except Exception:
+            continue
+    return [{"name": n} for n in sorted(names)]
 
 
 def _fetch_rows(document_name: str) -> list[dict]:
