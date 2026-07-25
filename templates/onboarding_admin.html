@@ -199,7 +199,11 @@ async function uploadFile() {
     if (data.error) {
       showStatus(data.error, 'error');
     } else {
-      showStatus(`✓ "${data.name}" uploaded — ${data.chunks} chunks indexed and searchable.`, 'success');
+      if (data.data_studio_warning) {
+        showStatus(`✓ "${data.name}" uploaded (${data.chunks} chunks) — ⚠️ Data Studio: ${data.data_studio_warning}`, 'warning');
+      } else {
+        showStatus(`✓ "${data.name}" uploaded — ${data.chunks} chunks indexed and searchable.`, 'success');
+      }
       document.getElementById('filePreview').style.display = 'none';
       selectedFile = null;
       setTimeout(() => location.reload(), 1800);
@@ -215,7 +219,7 @@ async function uploadFile() {
 function showStatus(msg, type) {
   const el = document.getElementById('uploadStatus');
   el.style.display = 'block';
-  el.className = 'mt-3 ' + (type === 'success' ? 'ob-upload-success' : 'ob-upload-error');
+  el.className = 'mt-3 ' + (type === 'success' ? 'ob-upload-success' : type === 'warning' ? 'ob-upload-warning' : 'ob-upload-error');
   el.textContent = msg;
 }
 </script>

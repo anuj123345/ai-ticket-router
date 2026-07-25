@@ -238,6 +238,30 @@ def delete_document(document_id: int):
 
 # -- Structured row storage (for Data Studio) ---------------------------------
 
+def _safe_json_val(v):
+    """Convert any openpyxl/csv cell value to a JSON-serializable Python primitive."""
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float):
+        return None if (v != v) else v  # NaN → None
+    if isinstance(v, str):
+        s = v.strip()
+        return s if s else None
+    if hasattr(v, "isoformat"):   # datetime, date, time
+        return v.isoformat()
+    try:
+        import decimal
+        if isinstance(v, decimal.Decimal):
+            return float(v)
+    except (ImportError, OverflowError):
+        pass
+    return str(v)                 # fallback — never crash
+
+
 def extract_structured_rows(file_bytes: bytes, file_type: str) -> tuple[list[str], list[dict]]:
     """Extract column headers + raw rows from xlsx/csv for dashboard use."""
     ft = file_type.lower()
@@ -257,8 +281,9 @@ def extract_structured_rows(file_bytes: bytes, file_type: str) -> tuple[list[str
                 continue
             row_dict = {}
             for h, v in zip(headers, row):
-                if v is not None and str(v).strip() != "":
-                    row_dict[h] = v.isoformat() if hasattr(v, "isoformat") else v
+                safe = _safe_json_val(v)
+                if safe is not None:
+                    row_dict[h] = safe
             if row_dict:
                 data_rows.append(row_dict)
         return headers, data_rows
@@ -318,15 +343,21 @@ def process_and_store(filename: str, file_bytes: bytes, file_type: str) -> dict:
     store_chunks(doc_id, filename, chunks)
 
     # Also store raw rows for Data Studio (xlsx/csv only)
+    data_studio_warning = None
     if file_type.lower() in ("xlsx", "xls", "csv"):
         try:
             _, rows = extract_structured_rows(file_bytes, file_type)
             if rows:
                 store_structured_rows(doc_id, filename, rows)
-        except Exception:
-            pass  # Don't fail the whole upload if structured storage fails
+            else:
+                data_studio_warning = "No structured rows found — file may be empty or have no header row."
+        except Exception as e:
+            data_studio_warning = f"Data Studio indexing failed: {e}"
 
-    return {"document_id": doc_id, "chunks": len(chunks), "name": filename}
+    result = {"document_id": doc_id, "chunks": len(chunks), "name": filename}
+    if data_studio_warning:
+        result["data_studio_warning"] = data_studio_warning
+    return result
 
 
 def get_all_documents() -> list[dict]:

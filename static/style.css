@@ -1838,6 +1838,15 @@ footer {
   font-size: 0.875rem;
 }
 
+.ob-upload-warning {
+  padding: 0.625rem 0.875rem;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius);
+  color: #92400e;
+  font-size: 0.875rem;
+}
+
 /* Stats grid */
 .ob-stats-grid {
   display: grid;
