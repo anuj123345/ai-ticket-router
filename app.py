@@ -497,7 +497,17 @@ def onboarding_delete(doc_id: int):
 def onboarding_admin():
     documents = get_all_documents()
     stats     = get_feedback_stats()
+    # Flag which xlsx/csv docs are missing from dataset_rows
+    from services.data_engine import get_data_documents
+    data_doc_names = {d["name"] for d in get_data_documents()}
+    for doc in documents:
+        if doc["file_type"].lower() in ("xlsx", "xls", "csv"):
+            doc["needs_sync"] = doc["name"] not in data_doc_names
+        else:
+            doc["needs_sync"] = False
     return render_template("onboarding_admin.html", documents=documents, stats=stats)
+
+
 
 
 # ─── Data Studio ──────────────────────────────────────────────────────────────

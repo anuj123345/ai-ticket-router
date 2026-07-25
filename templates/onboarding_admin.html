@@ -113,6 +113,12 @@
                 <div class="ob-doc-name">
                   <i class="bi bi-file-earmark-{% if doc.file_type == 'pdf' %}pdf{% elif doc.file_type == 'docx' %}word{% else %}text{% endif %} ob-doc-icon-{% if doc.file_type == 'pdf' %}pdf{% elif doc.file_type == 'docx' %}word{% else %}txt{% endif %}"></i>
                   {{ doc.name }}
+                  {% if doc.needs_sync %}
+                  <span class="badge bg-warning text-dark ms-2" style="font-size:0.7rem;font-weight:500"
+                        title="Not indexed in Data Studio — delete and re-upload to fix">
+                    <i class="bi bi-exclamation-triangle-fill me-1"></i>Re-upload for Data Studio
+                  </span>
+                  {% endif %}
                 </div>
               </td>
               <td><span class="badge-dept">{{ doc.file_type | upper }}</span></td>
