@@ -306,9 +306,13 @@ def extract_structured_rows(file_bytes: bytes, file_type: str) -> tuple[list[str
     return [], []
 
 
+MAX_DATA_ROWS = 20000   # safety cap so a huge file can't blow the timeout
+
+
 def store_structured_rows(document_id: int, document_name: str, rows: list[dict]):
     """Bulk-insert raw structured rows into dataset_rows."""
     client = get_client()
+    rows = rows[:MAX_DATA_ROWS]
     batch = []
     for row in rows:
         batch.append({
@@ -316,7 +320,7 @@ def store_structured_rows(document_id: int, document_name: str, rows: list[dict]
             "document_name": document_name,
             "row_data":      row,
         })
-        if len(batch) >= 100:
+        if len(batch) >= 500:
             client.table("dataset_rows").insert(batch).execute()
             batch = []
     if batch:
@@ -340,21 +344,31 @@ def process_and_store(filename: str, file_bytes: bytes, file_type: str) -> dict:
         raise ValueError("Document produced no usable text chunks.")
 
     doc_id = store_document(filename, file_type, len(file_bytes))
-    store_chunks(doc_id, filename, chunks)
 
-    # Also store raw rows for Data Studio (xlsx/csv only)
+    # Store raw rows for Data Studio FIRST (xlsx/csv only).
+    # This runs before embedding because embedding is slow and can hit the
+    # serverless timeout -- if that happens we still want Data Studio to work.
     data_studio_warning = None
+    data_rows_stored    = 0
     if file_type.lower() in ("xlsx", "xls", "csv"):
         try:
             _, rows = extract_structured_rows(file_bytes, file_type)
             if rows:
                 store_structured_rows(doc_id, filename, rows)
+                data_rows_stored = len(rows)
             else:
-                data_studio_warning = "No structured rows found — file may be empty or have no header row."
+                data_studio_warning = "No structured rows found -- file may be empty or have no header row."
         except Exception as e:
-            data_studio_warning = f"Data Studio indexing failed: {e}"
+            data_studio_warning = f"Data Studio indexing failed: {type(e).__name__}: {e}"
 
-    result = {"document_id": doc_id, "chunks": len(chunks), "name": filename}
+    store_chunks(doc_id, filename, chunks)
+
+    result = {
+        "document_id":      doc_id,
+        "chunks":           len(chunks),
+        "name":             filename,
+        "data_rows_stored": data_rows_stored,
+    }
     if data_studio_warning:
         result["data_studio_warning"] = data_studio_warning
     return result
