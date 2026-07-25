@@ -9,9 +9,14 @@
       <h1 class="ob-title"><i class="bi bi-search me-2"></i>Smart Search</h1>
       <p class="ob-subtitle">Ask questions about company policies, processes, and procedures</p>
     </div>
-    <a href="/onboarding/admin" class="btn btn-outline-secondary btn-sm">
-      <i class="bi bi-gear me-1"></i> Manage Docs
-    </a>
+    <div class="d-flex gap-2">
+      <button onclick="clearChat()" class="btn btn-outline-secondary btn-sm" title="Start a new conversation">
+        <i class="bi bi-plus-circle me-1"></i> New chat
+      </button>
+      <a href="/onboarding/admin" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-gear me-1"></i> Manage Docs
+      </a>
+    </div>
   </div>
 
   <!-- ── Document selector (multi-select) ────────────────────────────── -->
@@ -141,20 +146,45 @@ let messageLog    = [];
 
 function saveSession() {
   try {
-    sessionStorage.setItem(CHAT_KEY, JSON.stringify({
+    localStorage.setItem(CHAT_KEY, JSON.stringify({
       conversationHistory,
       messageLog,
       selectedDocs: [...selectedDocs],
       selectedModel,
+      savedAt: Date.now(),
     }));
   } catch(e) {}
 }
 
+function clearChat() {
+  localStorage.removeItem(CHAT_KEY);
+  conversationHistory.length = 0;
+  messageLog.length = 0;
+  selectedDocs.clear();
+  _syncPillUI();
+  // Reset messages area to the welcome message only
+  messagesArea.innerHTML = `
+    <div class="ob-msg ob-msg-assistant">
+      <div class="ob-msg-avatar"><i class="bi bi-robot"></i></div>
+      <div class="ob-msg-body">
+        <div class="ob-msg-bubble">
+          Hi! I'm your Smart Search assistant. {% if documents %}Select a document above to focus your search, or ask anything across all {{ documents | length }} uploaded files.{% else %}Upload documents to get started — I'll answer questions grounded in your uploaded docs.{% endif %}
+        </div>
+      </div>
+    </div>`;
+  _updateContextUI();
+}
+
 function restoreSession() {
   try {
-    const saved = sessionStorage.getItem(CHAT_KEY);
+    const saved = localStorage.getItem(CHAT_KEY);
     if (!saved) return;
     const s = JSON.parse(saved);
+    // Discard sessions older than 24 hours
+    if (s.savedAt && Date.now() - s.savedAt > 24 * 60 * 60 * 1000) {
+      localStorage.removeItem(CHAT_KEY);
+      return;
+    }
     if (s.conversationHistory) conversationHistory.push(...s.conversationHistory);
     if (s.selectedDocs && s.selectedDocs.length) {
       s.selectedDocs.forEach(d => selectedDocs.add(d));
