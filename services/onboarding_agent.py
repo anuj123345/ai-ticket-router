@@ -351,13 +351,11 @@ def search_verified_qa(question: str, max_results: int = 3) -> list[dict]:
         q_exp = expand_query(question)
         search_term = q_exp if q_exp != question else question
 
-        sql = (
-            "SELECT question, answer, upvotes FROM verified_qa "
-            "WHERE search_vector @@ websearch_to_tsquery('english', "
-            + repr(search_term) +
-            ") ORDER BY upvotes DESC LIMIT " + str(max_results)
-        )
-        resp = client.rpc("run_query", {"query_text": sql}).execute()
+        # User text goes in as a parameter, never spliced into SQL.
+        resp = client.rpc("search_verified_qa", {
+            "query_text":  search_term,
+            "max_results": max_results,
+        }).execute()
         return resp.data or []
     except Exception:
         return []

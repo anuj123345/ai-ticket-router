@@ -121,8 +121,13 @@ Result:
 
 
 def is_safe_sql(sql: str) -> bool:
-    upper = sql.strip().upper()
+    """First-line filter only. The real guard is in the database: model-written
+    SQL runs as the nlq_reader role, which can read public.tickets and nothing
+    else (see supabase/migrations/20261014120000_lock_down_nl_sql.sql)."""
+    upper = sql.strip().rstrip(";").strip().upper()
     if not upper.startswith("SELECT"):
+        return False
+    if ";" in upper:
         return False
     blocked = ["INSERT", "UPDATE", "DELETE", "DROP", "CREATE",
                "ALTER", "TRUNCATE", "GRANT", "REVOKE", "EXECUTE"]
@@ -163,7 +168,10 @@ def nl_query(question: str) -> dict:
     try:
         result = execute_query(sql)
     except Exception as e:
-        return {"error": str(e), "sql": sql, "question": question}
+        msg = str(e)
+        if "permission denied" in msg.lower():
+            msg = "Ops Analytics can only query the tickets table. Try rephrasing your question about tickets."
+        return {"error": msg, "sql": sql, "question": question}
 
     # Generate natural language summary
     try:
