@@ -8,6 +8,7 @@ import types
 
 import pytest
 
+from services import ai_models
 from services import doc_processor as dp
 
 
@@ -71,6 +72,7 @@ class FakeDB:
 
     def rpc(self, name, params):
         assert name == "set_chunk_embeddings"
+        assert params["model"]          # model name is recorded with each embedding
         self.rpc_calls += 1
         n = 0
         for item in params["items"]:
@@ -81,17 +83,28 @@ class FakeDB:
         return types.SimpleNamespace(execute=lambda: types.SimpleNamespace(data=n))
 
 
+class HTTPError(Exception):
+    """Shaped like openai.APIStatusError: has status_code and body."""
+    def __init__(self, status, detail):
+        super().__init__(detail)
+        self.status_code, self.body = status, {"detail": detail}
+
+
 class FakeNIM:
-    """fail_contents: chunk texts whose batch always fails. down: everything fails."""
-    def __init__(self, fail_contents=(), down=False):
-        self.fail_contents, self.down, self.calls = set(fail_contents), down, 0
+    """fail_contents: chunk texts whose batch always fails (503).
+    down: everything fails (503). retired: everything fails with 410 Gone."""
+    def __init__(self, fail_contents=(), down=False, retired=False, dims=2048):
+        self.fail_contents, self.down, self.retired = set(fail_contents), down, retired
+        self.dims, self.calls = dims, 0
         self.embeddings = self
 
     def create(self, model, input, **_):
         self.calls += 1
+        if self.retired:
+            raise HTTPError(410, f"The model '{model}' has reached its end of life")
         if self.down or self.fail_contents.intersection(input):
-            raise RuntimeError("503 Service Unavailable")
-        data = [types.SimpleNamespace(index=i, embedding=[0.1] * 4) for i in range(len(input))]
+            raise HTTPError(503, "Service Unavailable")
+        data = [types.SimpleNamespace(index=i, embedding=[0.5] * self.dims) for i in range(len(input))]
         return types.SimpleNamespace(data=list(reversed(data)))   # out of order on purpose
 
 
@@ -170,3 +183,38 @@ def test_never_starts_a_batch_that_could_overrun_the_limit(wire, monkeypatch):
 def test_worst_case_batch_fits_inside_vercel_limit():
     assert dp.REQUEST_LIMIT_S < 60
     assert dp.WORST_BATCH_S < dp.REQUEST_LIMIT_S
+
+
+def test_retired_model_stops_immediately_with_the_reason(wire):
+    db = FakeDB(n_chunks=120)
+    nim = FakeNIM(retired=True)
+    wire(db, nim)
+    out = dp.embed_pending_chunks(1)
+    assert nim.calls == 1                      # no retry, no further batches
+    assert out["embedded"] == 0 and out["remaining"] == 120
+    assert "end of life" in out["error"]
+
+
+def test_embeddings_are_trimmed_to_column_size_and_normalised(wire):
+    db = FakeDB(n_chunks=3)
+    wire(db, FakeNIM(dims=2048))
+    dp.embed_pending_chunks(1)
+    vec = db.chunks[0]["embedding"]
+    assert len(vec) == ai_models.EMBED_DIM
+    assert abs(sum(x * x for x in vec) - 1.0) < 1e-9
+
+
+def test_model_returning_too_few_dimensions_is_a_clear_error(wire):
+    db = FakeDB(n_chunks=3)
+    wire(db, FakeNIM(dims=768))
+    out = dp.embed_pending_chunks(1)
+    assert out["embedded"] == 0
+    assert "768 dimensions" in out["error"]
+
+
+def test_chat_picker_maps_old_saved_model_ids_to_a_working_tier():
+    from services import rag_graph
+    assert rag_graph.resolve_model_tier("power") == "power"
+    assert rag_graph.resolve_model_tier("meta/llama-3.1-8b-instruct") == rag_graph.DEFAULT_MODEL
+    assert rag_graph.resolve_model_tier(None) == rag_graph.DEFAULT_MODEL
+    assert rag_graph.resolve_model_tier(rag_graph.POWER_MODEL) == "power"

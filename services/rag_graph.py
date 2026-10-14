@@ -17,6 +17,7 @@ from typing import Optional
 from openai import OpenAI
 
 from models.db import get_client
+from services import ai_models
 
 
 # ---------------------------------------------------------------------------
@@ -31,25 +32,12 @@ def _llm() -> OpenAI:
 
 
 def _model() -> str:
-    return os.environ.get("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct")
+    return ai_models.chat_model()
 
 
 def _query_embedding(text: str):
-    """Generate a query-side embedding via NVIDIA NIM. Fully inlined - no external import."""
-    try:
-        client = OpenAI(
-            base_url=os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
-            api_key=os.environ.get("NVIDIA_API_KEY", ""),
-        )
-        resp = client.embeddings.create(
-            model="nvidia/nv-embedqa-e5-v5",
-            input=[text],
-            encoding_format="float",
-            extra_body={"input_type": "query", "truncate": "END"},
-        )
-        return resp.data[0].embedding
-    except Exception:
-        return None
+    """Query-side embedding, or None so retrieval falls back to keyword search."""
+    return ai_models.query_embedding(text)
 
 
 # ---------------------------------------------------------------------------
@@ -77,15 +65,22 @@ _DATA_STOP = {
 # Model registry
 # ---------------------------------------------------------------------------
 
+# Tiers the chat UI offers. The UI sends the tier key ("standard"/"power");
+# the actual model IDs live only here and in ai_models, so a model retirement
+# is a one-line change (or an env var change) instead of a UI edit.
+POWER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
+
 AVAILABLE_MODELS = {
-    "meta/llama-3.1-8b-instruct": {
-        "label":       "Llama 3.1 8B",
+    "standard": {
+        "model":       ai_models.chat_model(),       # NVIDIA_MODEL env var
+        "label":       "Standard",
         "tag":         "Fast",
         "temperature": 0.2,
         "max_tokens":  900,
         "extra_body":  None,
     },
-    "nvidia/nemotron-3-ultra-550b-a55b": {
+    "power": {
+        "model":       POWER_MODEL,
         "label":       "Nemotron 550B",
         "tag":         "Power",
         "temperature": 0.6,
@@ -94,7 +89,18 @@ AVAILABLE_MODELS = {
     },
 }
 
-DEFAULT_MODEL = "meta/llama-3.1-8b-instruct"
+DEFAULT_MODEL = "standard"
+
+
+def resolve_model_tier(requested: str | None) -> str:
+    """Map whatever the client sent (tier key, or a raw model ID saved in an
+    old browser session) to a tier key. Unknown or retired IDs -> default."""
+    if requested in AVAILABLE_MODELS:
+        return requested
+    for tier, cfg in AVAILABLE_MODELS.items():
+        if cfg["model"] == requested:
+            return tier
+    return DEFAULT_MODEL
 
 
 SYSTEM_PROMPT = """You are a helpful company onboarding assistant. Answer questions accurately using ONLY the provided documentation and context.
@@ -394,8 +400,8 @@ def run_rag(question: str, history: list = None,
     Returns {answer, sources, possibly_outdated, outdated_reason, conversation_id, has_docs}
     """
     history    = history or []
-    model      = model if model in AVAILABLE_MODELS else DEFAULT_MODEL
-    cfg        = AVAILABLE_MODELS[model]
+    cfg        = AVAILABLE_MODELS[resolve_model_tier(model)]
+    model      = cfg["model"]
     doc_filter = _normalize_doc_filter(doc_filter)
 
     # 1. Retrieve

@@ -6,6 +6,7 @@ All LLM calls go through here so swapping models is a one-line change.
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
+from services import ai_models
 
 load_dotenv()
 
@@ -30,7 +31,7 @@ def chat(messages: list[dict], temperature: float = 0.2, max_tokens: int = 1024)
         Response text as a string.
     """
     client = get_client()
-    model = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct")
+    model = ai_models.chat_model()
 
     response = client.chat.completions.create(
         model=model,

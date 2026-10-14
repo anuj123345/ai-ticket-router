@@ -43,18 +43,14 @@
   <div class="ob-model-selector">
     <span class="ob-doc-selector-label"><i class="bi bi-cpu me-1"></i>Model:</span>
     <div class="ob-model-pills">
-      <button class="ob-model-pill active" data-model="meta/llama-3.1-8b-instruct" onclick="selectModel(this)"
-              title="Lightweight & fast — good for most queries">
-        <i class="bi bi-lightning-charge-fill"></i>
-        <span class="ob-model-name">Llama 3.1 8B</span>
-        <span class="ob-model-badge">Fast</span>
+      {% for tier, m in model_tiers.items() %}
+      <button class="ob-model-pill{% if loop.first %} active{% endif %}" data-model="{{ tier }}" onclick="selectModel(this)"
+              title="{{ m.model }}">
+        <i class="bi {% if tier == 'power' %}bi-stars{% else %}bi-lightning-charge-fill{% endif %}"></i>
+        <span class="ob-model-name">{{ m.label }}</span>
+        <span class="ob-model-badge">{{ m.tag }}</span>
       </button>
-      <button class="ob-model-pill" data-model="nvidia/nemotron-3-ultra-550b-a55b" onclick="selectModel(this)"
-              title="NVIDIA frontier 550B model — deepest reasoning, best quality">
-        <i class="bi bi-stars"></i>
-        <span class="ob-model-name">Nemotron 550B</span>
-        <span class="ob-model-badge">Power</span>
-      </button>
+      {% endfor %}
     </div>
   </div>
 
@@ -141,7 +137,7 @@ const sidebarTitle      = document.getElementById('sidebarTitle');
 const CHAT_KEY = 'smart_search_session';
 const conversationHistory = [];
 let selectedDocs  = new Set();   // empty = all documents
-let selectedModel = 'meta/llama-3.1-8b-instruct';
+let selectedModel = 'standard';
 let messageLog    = [];
 
 function saveSession() {
@@ -215,7 +211,8 @@ function selectModel(btn) {
 }
 
 function selectModelByValue(modelVal) {
-  const btn = document.querySelector(`.ob-model-pill[data-model="${modelVal}"]`);
+  const btn = document.querySelector(`.ob-model-pill[data-model="${modelVal}"]`)
+           || document.querySelector('.ob-model-pill');   // saved value no longer offered
   if (btn) selectModel(btn);
 }
 

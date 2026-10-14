@@ -11,10 +11,11 @@ import os
 import re
 import time
 from models.db import get_client
+from services import ai_models
+from services.ai_models import ModelUnavailableError
 
 log = logging.getLogger(__name__)
 
-EMBED_MODEL       = "nvidia/nv-embedqa-e5-v5"
 EMBED_BATCH_SIZE  = 50     # texts per NVIDIA NIM call
 CHUNK_INSERT_SIZE = 200    # text-only chunk rows per insert
 EMBED_TIMEOUT_S   = 12.0   # per NIM call
@@ -28,66 +29,33 @@ REQUEST_LIMIT_S   = 52.0   # stay clear of Vercel's 60s maxDuration
 # -- Embeddings ---------------------------------------------------------------
 
 def _embed_client():
-    from openai import OpenAI
-    return OpenAI(
-        base_url=os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
-        api_key=os.environ.get("NVIDIA_API_KEY", ""),
-        timeout=EMBED_TIMEOUT_S,
-        max_retries=0,          # we retry ourselves, inside a time budget
-    )
+    # We retry ourselves, inside a time budget, so the SDK must not.
+    return ai_models.client(timeout=EMBED_TIMEOUT_S, max_retries=0)
 
 
 def _embed_batch(client, batch: list[str], attempts: int = EMBED_ATTEMPTS) -> list[list[float]] | None:
-    """Embed one batch. Retries once on failure; returns None if it still fails."""
+    """
+    Embed one batch of passages. Retries temporary failures (timeouts, 5xx,
+    rate limits) once and returns None if they persist. Permanent failures
+    (retired model, bad key) raise ModelUnavailableError straight away:
+    retrying them only burns time.
+    """
     for attempt in range(attempts):
         try:
-            resp = client.embeddings.create(
-                model=EMBED_MODEL,
-                input=batch,
-                encoding_format="float",
-                extra_body={"input_type": "passage", "truncate": "END"},
-            )
-            ordered = sorted(resp.data, key=lambda x: x.index)
-            return [item.embedding for item in ordered]
+            return ai_models.embed(batch, "passage", nim=client)
+        except ModelUnavailableError:
+            raise
         except Exception as e:
-            log.warning("Embedding batch failed (attempt %d/%d): %s: %s",
-                        attempt + 1, attempts, type(e).__name__, e)
+            log.warning("Embedding batch failed (attempt %d/%d): %s",
+                        attempt + 1, attempts, ai_models.describe_error(e))
             if attempt + 1 < attempts:
                 time.sleep(RETRY_PAUSE_S)
     return None
 
 
-def generate_embeddings(texts: list[str]) -> list[list[float] | None]:
-    """
-    Generate 1024-dim embeddings via NVIDIA NIM. Returns None per item for
-    batches that fail, so callers can leave those chunks for a later retry.
-    """
-    client = _embed_client()
-    results: list[list[float] | None] = []
-    for i in range(0, len(texts), EMBED_BATCH_SIZE):
-        batch = texts[i:i + EMBED_BATCH_SIZE]
-        vectors = _embed_batch(client, batch)
-        results.extend(vectors if vectors is not None else [None] * len(batch))
-    return results
-
-
 def query_embedding(text: str) -> list[float] | None:
-    """Generate a query-side embedding for semantic search."""
-    from openai import OpenAI
-    client = OpenAI(
-        base_url=os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
-        api_key=os.environ.get("NVIDIA_API_KEY", ""),
-    )
-    try:
-        resp = client.embeddings.create(
-            model="nvidia/nv-embedqa-e5-v5",
-            input=[text],
-            encoding_format="float",
-            extra_body={"input_type": "query", "truncate": "END"},
-        )
-        return resp.data[0].embedding
-    except Exception:
-        return None
+    """Query-side embedding for semantic search, or None (keyword search only)."""
+    return ai_models.query_embedding(text)
 
 
 # -- Text extraction ----------------------------------------------------------
@@ -272,14 +240,17 @@ def embed_pending_chunks(document_id: int, limit_s: float = REQUEST_LIMIT_S) -> 
     before limit_s, so the request always ends inside Vercel's 60s limit.
     Safe to call repeatedly; each call picks up where the last one stopped.
 
-    Returns {"embedded": n, "failed": n, "remaining": n}.
+    Returns {"embedded": n, "failed": n, "remaining": n} plus "error" when
+    the model is permanently unavailable (e.g. retired by NVIDIA).
     "failed" counts chunks whose batch failed even after a retry; they stay
     pending and are retried on the next call.
     """
     started = time.monotonic()
     client  = get_client()
     nim     = _embed_client()
+    model    = ai_models.embed_model()
     embedded = failed = 0
+    error: str | None = None
     skip_ids: set[int] = set()   # failed this call; don't refetch them in a loop
 
     while time.monotonic() - started + WORST_BATCH_S < limit_s:
@@ -296,21 +267,30 @@ def embed_pending_chunks(document_id: int, limit_s: float = REQUEST_LIMIT_S) -> 
         if not rows:
             break
 
-        vectors = _embed_batch(nim, [r["content"] for r in rows])
+        try:
+            vectors = _embed_batch(nim, [r["content"] for r in rows])
+        except ModelUnavailableError as e:
+            # Retired model / bad key: no point trying more batches.
+            log.error("Embedding stopped for document %s: %s", document_id, e)
+            error = str(e)
+            break
         if vectors is None:
             failed += len(rows)
             skip_ids.update(r["id"] for r in rows)
             continue
 
         items = [{"id": r["id"], "embedding": v} for r, v in zip(rows, vectors)]
-        resp = client.rpc("set_chunk_embeddings", {"items": items}).execute()
+        resp = client.rpc("set_chunk_embeddings", {"items": items, "model": model}).execute()
         embedded += resp.data if isinstance(resp.data, int) else len(items)
 
-    return {
+    result = {
         "embedded":  embedded,
         "failed":    failed,
         "remaining": count_pending_chunks(document_id),
     }
+    if error:
+        result["error"] = error
+    return result
 
 
 def delete_document(document_id: int):

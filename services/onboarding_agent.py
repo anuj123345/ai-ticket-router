@@ -14,6 +14,7 @@ import re
 import json
 from openai import OpenAI
 from models.db import get_client
+from services import ai_models
 
 
 SYSTEM_PROMPT = """You are a helpful company onboarding assistant. Answer employee questions accurately using ONLY the provided company documentation and verified Q&A history.
@@ -544,7 +545,7 @@ def suggest_questions(doc_names: str | list[str], n: int = 6) -> list[str]:
 
         llm = _llm()
         resp = llm.chat.completions.create(
-            model=os.environ.get("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct"),
+            model=ai_models.chat_model(),
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
             max_tokens=400,

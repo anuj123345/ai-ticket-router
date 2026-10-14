@@ -28,6 +28,8 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(levelname)s %(name)s: %(message)s",
 )
+# One INFO line per HTTP call to Supabase/NVIDIA drowns out real warnings.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__,
@@ -370,8 +372,10 @@ def ops_query():
 @app.route("/onboarding")
 @login_required
 def onboarding():
+    from services.rag_graph import AVAILABLE_MODELS
     documents = get_all_documents()
-    return render_template("onboarding.html", documents=documents)
+    return render_template("onboarding.html", documents=documents,
+                           model_tiers=AVAILABLE_MODELS)
 
 
 @app.route("/onboarding/chat", methods=["POST"])
@@ -502,6 +506,66 @@ def onboarding_embed(doc_id: int):
     except Exception as e:
         app.logger.exception("Embedding failed for document %s", doc_id)
         return jsonify({"error": f"Indexing failed: {type(e).__name__}."}), 500
+
+
+@app.route("/admin/health")
+@admin_required
+def admin_health():
+    """
+    Live check of every model the app depends on, using the real API key.
+    Optional ?try=model-a,model-b also probes candidate chat models, so a
+    replacement can be tested before changing NVIDIA_MODEL.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    import time as _time
+    from services import ai_models
+    from services.rag_graph import POWER_MODEL
+
+    def probe_chat(model_id):
+        t0 = _time.monotonic()
+        try:
+            resp = ai_models.client(timeout=25, max_retries=0).chat.completions.create(
+                model=model_id,
+                messages=[{"role": "user", "content": "Reply with the single word OK."}],
+                temperature=0,
+                max_tokens=300,
+            )
+            reply = (resp.choices[0].message.content or "").strip()
+            return {"model": model_id, "ok": bool(reply),
+                    "latency_ms": int((_time.monotonic() - t0) * 1000),
+                    "reply": reply[:120]}
+        except Exception as e:
+            return {"model": model_id, "ok": False,
+                    "latency_ms": int((_time.monotonic() - t0) * 1000),
+                    "error": ai_models.describe_error(e)}
+
+    def probe_embed():
+        t0 = _time.monotonic()
+        try:
+            vecs = ai_models.embed(["health check"], "query",
+                                   nim=ai_models.client(timeout=25, max_retries=0))
+            return {"model": ai_models.embed_model(), "ok": len(vecs[0]) == ai_models.EMBED_DIM,
+                    "dims": len(vecs[0]), "latency_ms": int((_time.monotonic() - t0) * 1000)}
+        except Exception as e:
+            return {"model": ai_models.embed_model(), "ok": False,
+                    "latency_ms": int((_time.monotonic() - t0) * 1000),
+                    "error": ai_models.describe_error(e)}
+
+    candidates = [m.strip() for m in request.args.get("try", "").split(",") if m.strip()][:4]
+    with ThreadPoolExecutor(max_workers=3 + len(candidates)) as pool:
+        chat_f  = pool.submit(probe_chat, ai_models.chat_model())
+        power_f = pool.submit(probe_chat, POWER_MODEL)
+        embed_f = pool.submit(probe_embed)
+        cand_f  = [pool.submit(probe_chat, m) for m in candidates]
+        result = {
+            "chat_model":  chat_f.result(),
+            "power_model": power_f.result(),
+            "embed_model": embed_f.result(),
+        }
+        if cand_f:
+            result["candidates"] = [f.result() for f in cand_f]
+    result["all_ok"] = all(result[k]["ok"] for k in ("chat_model", "power_model", "embed_model"))
+    return jsonify(result)
 
 
 @app.route("/onboarding/delete/<int:doc_id>", methods=["POST"])

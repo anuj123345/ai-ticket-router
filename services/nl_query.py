@@ -7,6 +7,7 @@ import os
 import re
 from openai import OpenAI
 from models.db import get_client
+from services import ai_models
 
 # ── Schema context ──────────────────────────────────────────────────────────
 
@@ -61,17 +62,14 @@ Rules:
 
 
 def _llm_client() -> OpenAI:
-    return OpenAI(
-        base_url=os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
-        api_key=os.environ.get("NVIDIA_API_KEY", ""),
-    )
+    return ai_models.client()
 
 
 def generate_sql(question: str) -> str:
     """Ask the LLM to produce a SQL query from a natural language question."""
     client = _llm_client()
     response = client.chat.completions.create(
-        model=os.environ.get("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct"),
+        model=ai_models.chat_model(),
         messages=[
             {"role": "system", "content": SQL_SYSTEM_PROMPT},
             {"role": "user",   "content": question},
@@ -109,7 +107,7 @@ Result:
 
     client = _llm_client()
     response = client.chat.completions.create(
-        model=os.environ.get("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct"),
+        model=ai_models.chat_model(),
         messages=[
             {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
             {"role": "user",   "content": user_msg},

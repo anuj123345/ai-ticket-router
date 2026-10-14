@@ -5,6 +5,7 @@ computes KPIs, and builds Chart.js-compatible chart configs for Data Studio.
 from __future__ import annotations
 import re
 from models.db import get_client
+from services import ai_models
 
 MONTH_ORDER = [
     "January", "February", "March", "April", "May", "June",
@@ -561,7 +562,7 @@ Rules:
     )
     try:
         llm_resp = llm.chat.completions.create(
-            model="meta/llama-3.1-8b-instruct",
+            model=ai_models.chat_model(),
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=700,

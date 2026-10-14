@@ -258,7 +258,12 @@ async function runIndexing(docId, total, pending, onProgress) {
     try {
       const res  = await fetch(`/onboarding/embed/${docId}`, { method: 'POST' });
       const data = await readJson(res);
-      if (data.error) throw new Error(data.error);
+      if (data.error) {
+        // Permanent problem (e.g. the embedding model was retired): stop now.
+        if (typeof data.remaining === 'number') remaining = data.remaining;
+        lastError = data.error;
+        break;
+      }
       remaining = data.remaining;
       stalled   = data.embedded > 0 ? 0 : stalled + 1;
       if (data.embedded === 0) lastError = 'the embedding service is not responding';
