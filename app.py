@@ -3,6 +3,7 @@ AI Ticket Router — Flask Application
 """
 
 import json
+import logging
 import os
 from datetime import datetime
 from functools import wraps
@@ -15,11 +16,18 @@ from models.auth import create_user, get_user_by_email_with_hash, get_user_by_id
 from services.classifier import classify_ticket, get_assignee
 from services.response_gen import generate_draft, format_full_response
 from services.nl_query import nl_query as run_nl_query
-from services.doc_processor import process_and_store, get_all_documents, delete_document
+from services.doc_processor import (process_and_store, get_all_documents,
+                                    delete_document, embed_pending_chunks)
 from services.onboarding_agent import answer_question, save_verified_qa, get_feedback_stats
 from services.data_engine import get_data_documents, build_dashboard
 
 load_dotenv()
+
+# Send app warnings/errors to stdout so they show up in Vercel's runtime logs.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s %(name)s: %(message)s",
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__,
@@ -477,8 +485,23 @@ def onboarding_upload():
     try:
         result = process_and_store(name, file_bytes, ext)
         return jsonify(result)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        app.logger.exception("Upload failed for %s", name)
+        return jsonify({"error": f"Upload failed: {type(e).__name__}. Please try again."}), 500
+
+
+@app.route("/onboarding/embed/<int:doc_id>", methods=["POST"])
+@admin_required
+def onboarding_embed(doc_id: int):
+    """Embed the next slice of this document's chunks. The admin page calls
+    this repeatedly until remaining == 0. Each call stays under ~52s."""
+    try:
+        return jsonify(embed_pending_chunks(doc_id))
+    except Exception as e:
+        app.logger.exception("Embedding failed for document %s", doc_id)
+        return jsonify({"error": f"Indexing failed: {type(e).__name__}."}), 500
 
 
 @app.route("/onboarding/delete/<int:doc_id>", methods=["POST"])

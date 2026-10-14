@@ -6,38 +6,68 @@ All processing happens in-memory (no disk writes -- Vercel compatible).
 """
 from __future__ import annotations
 import io
+import logging
 import os
 import re
+import time
 from models.db import get_client
+
+log = logging.getLogger(__name__)
+
+EMBED_MODEL       = "nvidia/nv-embedqa-e5-v5"
+EMBED_BATCH_SIZE  = 50     # texts per NVIDIA NIM call
+CHUNK_INSERT_SIZE = 200    # text-only chunk rows per insert
+EMBED_TIMEOUT_S   = 12.0   # per NIM call
+EMBED_ATTEMPTS    = 2
+RETRY_PAUSE_S     = 1.5
+# Worst case for one batch: every attempt times out.
+WORST_BATCH_S     = EMBED_ATTEMPTS * EMBED_TIMEOUT_S + RETRY_PAUSE_S   # 25.5s
+REQUEST_LIMIT_S   = 52.0   # stay clear of Vercel's 60s maxDuration
 
 
 # -- Embeddings ---------------------------------------------------------------
 
-def generate_embeddings(texts: list[str]) -> list[list[float] | None]:
-    """
-    Generate 1024-dim embeddings via NVIDIA NIM (nvidia/nv-embedqa-e5-v5).
-    Batches up to 50 texts per call. Returns None per item on error so upload
-    still succeeds (FTS fallback remains available).
-    """
+def _embed_client():
     from openai import OpenAI
-    client = OpenAI(
+    return OpenAI(
         base_url=os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
         api_key=os.environ.get("NVIDIA_API_KEY", ""),
+        timeout=EMBED_TIMEOUT_S,
+        max_retries=0,          # we retry ourselves, inside a time budget
     )
-    results: list[list[float] | None] = []
-    for i in range(0, len(texts), 50):
-        batch = texts[i:i + 50]
+
+
+def _embed_batch(client, batch: list[str], attempts: int = EMBED_ATTEMPTS) -> list[list[float]] | None:
+    """Embed one batch. Retries once on failure; returns None if it still fails."""
+    for attempt in range(attempts):
         try:
             resp = client.embeddings.create(
-                model="nvidia/nv-embedqa-e5-v5",
+                model=EMBED_MODEL,
                 input=batch,
                 encoding_format="float",
                 extra_body={"input_type": "passage", "truncate": "END"},
             )
             ordered = sorted(resp.data, key=lambda x: x.index)
-            results.extend([item.embedding for item in ordered])
-        except Exception:
-            results.extend([None] * len(batch))
+            return [item.embedding for item in ordered]
+        except Exception as e:
+            log.warning("Embedding batch failed (attempt %d/%d): %s: %s",
+                        attempt + 1, attempts, type(e).__name__, e)
+            if attempt + 1 < attempts:
+                time.sleep(RETRY_PAUSE_S)
+    return None
+
+
+def generate_embeddings(texts: list[str]) -> list[list[float] | None]:
+    """
+    Generate 1024-dim embeddings via NVIDIA NIM. Returns None per item for
+    batches that fail, so callers can leave those chunks for a later retry.
+    """
+    client = _embed_client()
+    results: list[list[float] | None] = []
+    for i in range(0, len(texts), EMBED_BATCH_SIZE):
+        batch = texts[i:i + EMBED_BATCH_SIZE]
+        vectors = _embed_batch(client, batch)
+        results.extend(vectors if vectors is not None else [None] * len(batch))
     return results
 
 
@@ -206,29 +236,81 @@ def store_document(name: str, file_type: str, size_bytes: int) -> int:
 
 def store_chunks(document_id: int, document_name: str, chunks: list[str]):
     """
-    Bulk-insert chunks with embeddings into doc_chunks.
-    Generates embeddings in batches; falls back gracefully if API fails.
+    Insert chunks as text only. Keyword search works as soon as this returns;
+    embeddings are added afterwards by embed_pending_chunks().
     """
     client = get_client()
-
-    # Generate embeddings for all chunks
-    embeddings = generate_embeddings(chunks)
-
-    rows = []
-    for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-        row = {
+    rows = [
+        {
             "document_id":   document_id,
             "document_name": document_name,
             "chunk_index":   i,
             "content":       chunk,
         }
-        if emb is not None:
-            row["embedding"] = emb
-        rows.append(row)
+        for i, chunk in enumerate(chunks)
+    ]
+    for i in range(0, len(rows), CHUNK_INSERT_SIZE):
+        client.table("doc_chunks").insert(rows[i:i + CHUNK_INSERT_SIZE]).execute()
 
-    # Insert in batches of 50 (embeddings are large)
-    for i in range(0, len(rows), 50):
-        client.table("doc_chunks").insert(rows[i:i + 50]).execute()
+
+def count_pending_chunks(document_id: int) -> int:
+    client = get_client()
+    resp = (
+        client.table("doc_chunks")
+        .select("id", count="exact", head=True)
+        .eq("document_id", document_id)
+        .is_("embedding", "null")
+        .execute()
+    )
+    return resp.count or 0
+
+
+def embed_pending_chunks(document_id: int, limit_s: float = REQUEST_LIMIT_S) -> dict:
+    """
+    Embed this document's chunks that have no embedding yet. A new batch only
+    starts if even its worst case (all attempts timing out) still finishes
+    before limit_s, so the request always ends inside Vercel's 60s limit.
+    Safe to call repeatedly; each call picks up where the last one stopped.
+
+    Returns {"embedded": n, "failed": n, "remaining": n}.
+    "failed" counts chunks whose batch failed even after a retry; they stay
+    pending and are retried on the next call.
+    """
+    started = time.monotonic()
+    client  = get_client()
+    nim     = _embed_client()
+    embedded = failed = 0
+    skip_ids: set[int] = set()   # failed this call; don't refetch them in a loop
+
+    while time.monotonic() - started + WORST_BATCH_S < limit_s:
+        query = (
+            client.table("doc_chunks")
+            .select("id, content")
+            .eq("document_id", document_id)
+            .is_("embedding", "null")
+            .order("chunk_index")
+            .limit(EMBED_BATCH_SIZE + len(skip_ids))
+        )
+        rows = [r for r in (query.execute().data or []) if r["id"] not in skip_ids]
+        rows = rows[:EMBED_BATCH_SIZE]
+        if not rows:
+            break
+
+        vectors = _embed_batch(nim, [r["content"] for r in rows])
+        if vectors is None:
+            failed += len(rows)
+            skip_ids.update(r["id"] for r in rows)
+            continue
+
+        items = [{"id": r["id"], "embedding": v} for r, v in zip(rows, vectors)]
+        resp = client.rpc("set_chunk_embeddings", {"items": items}).execute()
+        embedded += resp.data if isinstance(resp.data, int) else len(items)
+
+    return {
+        "embedded":  embedded,
+        "failed":    failed,
+        "remaining": count_pending_chunks(document_id),
+    }
 
 
 def delete_document(document_id: int):
@@ -331,9 +413,10 @@ def store_structured_rows(document_id: int, document_name: str, rows: list[dict]
 
 def process_and_store(filename: str, file_bytes: bytes, file_type: str) -> dict:
     """
-    Full pipeline: extract -> chunk -> embed -> store.
-    For xlsx/csv also stores raw structured rows for Data Studio.
-    Returns {"document_id": int, "chunks": int, "name": str}
+    Upload pipeline: extract -> chunk -> store text (+ Data Studio rows).
+    Embedding is NOT done here; the caller drives embed_pending_chunks()
+    in follow-up requests so large files can't time out this one.
+    Returns {"document_id", "chunks", "name", "data_rows_stored", "pending_embeddings"}.
     """
     text = extract_text(file_bytes, file_type)
     if not text.strip():
@@ -345,9 +428,7 @@ def process_and_store(filename: str, file_bytes: bytes, file_type: str) -> dict:
 
     doc_id = store_document(filename, file_type, len(file_bytes))
 
-    # Store raw rows for Data Studio FIRST (xlsx/csv only).
-    # This runs before embedding because embedding is slow and can hit the
-    # serverless timeout -- if that happens we still want Data Studio to work.
+    # Store raw rows for Data Studio (xlsx/csv only).
     data_studio_warning = None
     data_rows_stored    = 0
     if file_type.lower() in ("xlsx", "xls", "csv"):
@@ -355,19 +436,32 @@ def process_and_store(filename: str, file_bytes: bytes, file_type: str) -> dict:
             _, rows = extract_structured_rows(file_bytes, file_type)
             if rows:
                 store_structured_rows(doc_id, filename, rows)
-                data_rows_stored = len(rows)
+                data_rows_stored = min(len(rows), MAX_DATA_ROWS)
+                if len(rows) > MAX_DATA_ROWS:
+                    data_studio_warning = (
+                        f"File has {len(rows):,} rows; only the first "
+                        f"{MAX_DATA_ROWS:,} were loaded into Data Studio."
+                    )
             else:
                 data_studio_warning = "No structured rows found -- file may be empty or have no header row."
         except Exception as e:
+            log.exception("Data Studio indexing failed for %s", filename)
             data_studio_warning = f"Data Studio indexing failed: {type(e).__name__}: {e}"
 
-    store_chunks(doc_id, filename, chunks)
+    try:
+        store_chunks(doc_id, filename, chunks)
+    except Exception:
+        # Don't leave a document row with no chunks behind.
+        log.exception("Storing chunks failed for %s; rolling back document %s", filename, doc_id)
+        delete_document(doc_id)
+        raise
 
     result = {
-        "document_id":      doc_id,
-        "chunks":           len(chunks),
-        "name":             filename,
-        "data_rows_stored": data_rows_stored,
+        "document_id":        doc_id,
+        "chunks":             len(chunks),
+        "name":               filename,
+        "data_rows_stored":   data_rows_stored,
+        "pending_embeddings": len(chunks),
     }
     if data_studio_warning:
         result["data_studio_warning"] = data_studio_warning
@@ -383,12 +477,14 @@ def get_all_documents() -> list[dict]:
         .execute()
         .data or []
     )
+    # One call for every document's chunk / embedding counts.
+    status = {
+        row["document_id"]: row
+        for row in (client.rpc("document_index_status").execute().data or [])
+    }
     for doc in docs:
-        count_resp = (
-            client.table("doc_chunks")
-            .select("id", count="exact")
-            .eq("document_id", doc["id"])
-            .execute()
-        )
-        doc["chunk_count"] = count_resp.count or 0
+        s = status.get(doc["id"], {})
+        doc["chunk_count"]    = s.get("total_chunks", 0)
+        doc["embedded_count"] = s.get("embedded_chunks", 0)
+        doc["pending_count"]  = doc["chunk_count"] - doc["embedded_count"]
     return docs

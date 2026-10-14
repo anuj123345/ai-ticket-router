@@ -123,7 +123,21 @@
               </td>
               <td><span class="badge-dept">{{ doc.file_type | upper }}</span></td>
               <td>{{ (doc.size_bytes / 1024) | round(1) }} KB</td>
-              <td>{{ doc.chunk_count }} chunks</td>
+              <td>
+                <div>{{ doc.chunk_count }} chunks</div>
+                {% if doc.pending_count > 0 %}
+                <div class="mt-1" id="index-status-{{ doc.id }}" style="font-size:0.75rem;color:var(--text-3)">
+                  {{ doc.embedded_count }}/{{ doc.chunk_count }} ready for AI search
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-warning mt-1"
+                        id="index-btn-{{ doc.id }}"
+                        style="font-size:0.75rem;padding:0.125rem 0.5rem"
+                        title="Keyword search already works. This adds semantic (meaning-based) search."
+                        onclick="finishIndexing({{ doc.id }}, {{ doc.chunk_count }}, {{ doc.pending_count }}, this)">
+                  <i class="bi bi-arrow-repeat me-1"></i>Finish indexing
+                </button>
+                {% endif %}
+              </td>
               <td class="text-secondary" style="font-size:0.8125rem">{{ doc.created_at[:10] }}</td>
               <td>
                 <form method="POST" action="/onboarding/delete/{{ doc.id }}"
@@ -195,24 +209,83 @@ async function uploadFile() {
 
   try {
     const res  = await fetch('/onboarding/upload', { method: 'POST', body: formData });
-    const data = await res.json();
+    const data = await readJson(res);
     if (data.error) {
       showStatus(data.error, 'error');
-    } else {
-      if (data.data_studio_warning) {
-        showStatus(`✓ "${data.name}" uploaded (${data.chunks} chunks) — ⚠️ Data Studio: ${data.data_studio_warning}`, 'warning');
-      } else {
-        showStatus(`✓ "${data.name}" uploaded — ${data.chunks} chunks indexed and searchable.`, 'success');
-      }
-      document.getElementById('filePreview').style.display = 'none';
-      selectedFile = null;
-      setTimeout(() => location.reload(), 1800);
+      return;
     }
+    document.getElementById('filePreview').style.display = 'none';
+    selectedFile = null;
+    const dsNote = data.data_studio_warning ? ` ⚠️ Data Studio: ${data.data_studio_warning}` : '';
+
+    // Step 2: semantic indexing, in short resumable batches.
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Indexing…';
+    const outcome = await runIndexing(data.document_id, data.chunks, data.pending_embeddings, (done, total) => {
+      showStatus(`✓ "${data.name}" uploaded — keyword search is live. Indexing for AI search: ${done}/${total}…${dsNote}`, 'warning');
+    });
+
+    if (outcome.remaining === 0) {
+      showStatus(`✓ "${data.name}" uploaded — ${data.chunks} chunks fully indexed.${dsNote}`, dsNote ? 'warning' : 'success');
+    } else {
+      showStatus(`✓ "${data.name}" uploaded and keyword-searchable. ${outcome.remaining} of ${data.chunks} chunks still need AI indexing — ` +
+                 `use "Finish indexing" in the list below to retry.${outcome.error ? ' (' + outcome.error + ')' : ''}${dsNote}`, 'warning');
+    }
+    setTimeout(() => location.reload(), 2500);
   } catch (e) {
-    showStatus('Upload failed. Please try again.', 'error');
+    showStatus(e.message || 'Upload failed. Please try again.', 'error');
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-cloud-upload me-1"></i> Upload';
+  }
+}
+
+// Parse a JSON response; turn session expiry / HTML error pages into a clear message.
+async function readJson(res) {
+  const type = res.headers.get('content-type') || '';
+  if (res.redirected || !type.includes('application/json')) {
+    throw new Error(res.status === 504
+      ? 'The server took too long to respond. Please try again.'
+      : 'Your session has expired. Please reload the page and sign in again.');
+  }
+  return res.json();
+}
+
+// Call /onboarding/embed/<id> until nothing is left, or two calls in a row make no progress.
+async function runIndexing(docId, total, pending, onProgress) {
+  let remaining = pending, stalled = 0, lastError = null;
+  onProgress(total - remaining, total);
+  while (remaining > 0 && stalled < 2) {
+    try {
+      const res  = await fetch(`/onboarding/embed/${docId}`, { method: 'POST' });
+      const data = await readJson(res);
+      if (data.error) throw new Error(data.error);
+      remaining = data.remaining;
+      stalled   = data.embedded > 0 ? 0 : stalled + 1;
+      if (data.embedded === 0) lastError = 'the embedding service is not responding';
+    } catch (e) {
+      stalled  += 1;
+      lastError = e.message;
+    }
+    onProgress(total - remaining, total);
+  }
+  return { remaining, error: remaining > 0 ? lastError : null };
+}
+
+async function finishIndexing(docId, total, pending, btn) {
+  const statusEl = document.getElementById(`index-status-${docId}`);
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Indexing…';
+  const outcome = await runIndexing(docId, total, pending, (done, t) => {
+    statusEl.textContent = `${done}/${t} ready for AI search…`;
+  });
+  if (outcome.remaining === 0) {
+    statusEl.textContent = `${total}/${total} ready for AI search`;
+    btn.remove();
+    setTimeout(() => location.reload(), 1200);
+  } else {
+    statusEl.textContent = `${total - outcome.remaining}/${total} ready — ${outcome.error || 'try again later'}`;
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Retry';
   }
 }
 
