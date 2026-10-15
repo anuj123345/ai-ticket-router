@@ -94,9 +94,17 @@ def retrieve(query: str, n_results: int = 4) -> list[dict]:
     if not _index:
         return []
 
-    scored = sorted(_index, key=lambda x: _score(query, x), reverse=True)
+    scored = sorted(((_score(query, x), x) for x in _index),
+                    key=lambda p: p[0], reverse=True)
+    if not scored or scored[0][0] <= 0:
+        return []
+    # Keep only chunks reasonably close to the best match, so an IT ticket
+    # doesn't cite (or get distracted by) the finance and HR docs.
+    floor = scored[0][0] * 0.25
     seen, results = set(), []
-    for item in scored:
+    for score, item in scored:
+        if score < floor:
+            break
         key = item["source"] + item["text"][:60]
         if key not in seen:
             seen.add(key)

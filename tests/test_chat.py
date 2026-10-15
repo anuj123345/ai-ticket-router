@@ -109,3 +109,19 @@ def test_failed_draft_is_never_saved_blank(model_says, monkeypatch):
     model_says(FakeChat(content="", finish="length"))
     draft = response_gen.generate_draft("vpn", "down", "IT")["draft"]
     assert draft.startswith("[AI draft unavailable")
+
+
+def test_draft_markdown_is_converted_to_plain_text(model_says, monkeypatch):
+    from services import response_gen
+    monkeypatch.setattr(response_gen.rag, "retrieve", lambda q, n_results=4: [])
+    monkeypatch.setattr(response_gen.rag, "format_context", lambda chunks: "")
+    model_says(FakeChat(content="## Fix\n1. **Restart the VPN client** completely.\n2. Check __2FA__."))
+    draft = response_gen.generate_draft("vpn", "down", "IT")["draft"]
+    assert "**" not in draft and "__" not in draft and "#" not in draft
+    assert "1. Restart the VPN client completely." in draft
+
+
+def test_vpn_ticket_only_cites_the_it_doc():
+    from services import rag
+    sources = {c["source"] for c in rag.retrieve("vpn is not working in my laptop. My laptop won't connect to VPN since this morning")}
+    assert sources == {"it_support.md"}

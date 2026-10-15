@@ -4,6 +4,7 @@ professional reply to a support ticket. Human reviews before sending.
 """
 
 import logging
+import re
 
 from services.llm_client import chat
 from services import rag
@@ -21,6 +22,7 @@ Guidelines:
 - End with a friendly offer to help further.
 - Use a professional but warm tone (not robotic, not over-casual).
 - Format the response with clear paragraphs. Do not use bullet points unless listing steps.
+- Write plain text only: it is sent as a plain email. No Markdown - no **bold**, no # headings. Numbered steps like "1. " are fine.
 
 You will be given:
 1. The ticket subject and description
@@ -79,10 +81,18 @@ Please draft a helpful response to this ticket."""
                  "Please write the response manually before approving.]")
 
     return {
-        "draft": draft,
+        "draft": _plain_text(draft),
         "sources": chunks,
         "context_used": context,
     }
+
+
+def _plain_text(text: str) -> str:
+    """Remove Markdown emphasis/headings the model may still add; the reply is a plain email."""
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+    return text
 
 
 def format_full_response(
