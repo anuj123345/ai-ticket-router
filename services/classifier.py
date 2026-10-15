@@ -4,8 +4,11 @@ and assign a priority level. Returns structured data.
 """
 
 import json
+import logging
 import re
 from services.llm_client import chat
+
+log = logging.getLogger(__name__)
 
 DEPARTMENTS = ["IT", "HR", "Finance", "Engineering", "General"]
 PRIORITIES = ["Low", "Medium", "High", "Critical"]
@@ -54,7 +57,16 @@ def classify_ticket(subject: str, description: str) -> dict:
         {"role": "user", "content": user_message},
     ]
 
-    raw = chat(messages, temperature=0.1, max_tokens=256)
+    try:
+        raw = chat(messages, temperature=0.1, max_tokens=256)
+    except Exception as e:
+        log.error("Ticket classification failed: %s", e)
+        return {
+            "department": "General",
+            "priority": "Medium",
+            "confidence": 0.0,
+            "reasoning": f"AI classification unavailable ({type(e).__name__}: {e}). Defaulted to General/Medium - please route manually.",
+        }
 
     # Extract JSON even if the model wraps it in markdown code blocks
     json_match = re.search(r"\{.*?\}", raw, re.DOTALL)
@@ -72,11 +84,12 @@ def classify_ticket(subject: str, description: str) -> dict:
             pass
 
     # Fallback if parsing fails
+    log.warning("Could not parse classification from model reply: %r", raw[:300])
     return {
         "department": "General",
         "priority": "Medium",
-        "confidence": 0.5,
-        "reasoning": "Could not parse classification. Defaulted to General/Medium.",
+        "confidence": 0.0,
+        "reasoning": "AI reply was not valid JSON. Defaulted to General/Medium - please route manually.",
     }
 
 

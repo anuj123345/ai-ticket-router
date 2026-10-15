@@ -524,14 +524,14 @@ def admin_health():
     def probe_chat(model_id):
         t0 = _time.monotonic()
         try:
-            resp = ai_models.client(timeout=25, max_retries=0).chat.completions.create(
-                model=model_id,
-                messages=[{"role": "user", "content": "Reply with the single word OK."}],
-                temperature=0,
-                max_tokens=300,
+            # Same code path and a tight token budget like real features use,
+            # so a model that burns its budget "thinking" fails here too.
+            reply = ai_models.chat_completion(
+                [{"role": "user", "content": 'Reply with exactly this JSON: {"status": "OK"}'}],
+                model=model_id, temperature=0, max_tokens=64,
+                nim=ai_models.client(timeout=25, max_retries=0),
             )
-            reply = (resp.choices[0].message.content or "").strip()
-            return {"model": model_id, "ok": bool(reply),
+            return {"model": model_id, "ok": "OK" in reply,
                     "latency_ms": int((_time.monotonic() - t0) * 1000),
                     "reply": reply[:120]}
         except Exception as e:

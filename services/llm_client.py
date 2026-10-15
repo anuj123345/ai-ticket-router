@@ -30,13 +30,4 @@ def chat(messages: list[dict], temperature: float = 0.2, max_tokens: int = 1024)
     Returns:
         Response text as a string.
     """
-    client = get_client()
-    model = ai_models.chat_model()
-
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
-    return ai_models.clean_reply(response.choices[0].message.content)
+    return ai_models.chat_completion(messages, max_tokens=max_tokens, temperature=temperature)

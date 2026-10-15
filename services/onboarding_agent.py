@@ -543,14 +543,11 @@ def suggest_questions(doc_names: str | list[str], n: int = 6) -> list[str]:
                 f"Return ONLY a numbered list, one question per line, no explanation."
             )
 
-        llm = _llm()
-        resp = llm.chat.completions.create(
-            model=ai_models.chat_model(),
-            messages=[{"role": "user", "content": prompt}],
+        raw = ai_models.chat_completion(
+            [{"role": "user", "content": prompt}],
             temperature=0.4,
             max_tokens=400,
         )
-        raw = ai_models.clean_reply(resp.choices[0].message.content)
 
         questions = []
         for line in raw.splitlines():

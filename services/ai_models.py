@@ -66,6 +66,59 @@ def clean_reply(text: str | None) -> str:
     return text.strip()
 
 
+class EmptyReplyError(RuntimeError):
+    """The model answered with nothing usable (e.g. it spent every token
+    thinking). Raised instead of returning "" so callers can't silently save
+    a blank draft or a default classification."""
+
+
+# Nemotron 3.x models reason by default (up to 16k tokens), which swallows
+# small max_tokens budgets and leaves an empty answer. This turns that off.
+# Models that don't use the setting ignore it.
+_NO_THINKING = {"chat_template_kwargs": {"enable_thinking": False}}
+
+
+def chat_completion(messages: list[dict], *, max_tokens: int,
+                    temperature: float = 0.2, model: str | None = None,
+                    thinking: bool = False, timeout: float | None = 45.0,
+                    nim: OpenAI | None = None) -> str:
+    """
+    The one way the app calls a chat model. Returns the answer text with any
+    reasoning block removed. Raises EmptyReplyError if there is no answer,
+    ModelUnavailableError for permanent API errors (retired model, bad key).
+    """
+    model = model or chat_model()
+    nim = nim or client(timeout=timeout)
+    kwargs = dict(model=model, messages=messages,
+                  temperature=temperature, max_tokens=max_tokens)
+    if not thinking:
+        kwargs["extra_body"] = _NO_THINKING
+
+    try:
+        resp = nim.chat.completions.create(**kwargs)
+    except Exception as e:
+        # A model that rejects the thinking switch: retry once without it.
+        if (getattr(e, "status_code", None) in (400, 422) and "extra_body" in kwargs
+                and "chat_template" in describe_error(e).lower()):
+            kwargs.pop("extra_body")
+            resp = nim.chat.completions.create(**kwargs)
+        elif is_permanent_error(e):
+            raise ModelUnavailableError(f"Chat model {model} unavailable: {describe_error(e)}") from e
+        else:
+            raise
+
+    choice = resp.choices[0]
+    text = clean_reply(choice.message.content)
+    if not text:
+        reason = getattr(choice, "finish_reason", None)
+        log.warning("Empty reply from %s (finish_reason=%s, max_tokens=%s)", model, reason, max_tokens)
+        raise EmptyReplyError(
+            f"{model} returned no answer"
+            + (" (ran out of tokens)" if reason == "length" else "")
+        )
+    return text
+
+
 def embed_model() -> str:
     return os.environ.get("NVIDIA_EMBED_MODEL") or DEFAULT_EMBED_MODEL
 

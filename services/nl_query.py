@@ -67,17 +67,14 @@ def _llm_client() -> OpenAI:
 
 def generate_sql(question: str) -> str:
     """Ask the LLM to produce a SQL query from a natural language question."""
-    client = _llm_client()
-    response = client.chat.completions.create(
-        model=ai_models.chat_model(),
-        messages=[
+    raw = ai_models.chat_completion(
+        [
             {"role": "system", "content": SQL_SYSTEM_PROMPT},
             {"role": "user",   "content": question},
         ],
         temperature=0.0,
         max_tokens=512,
     )
-    raw = ai_models.clean_reply(response.choices[0].message.content)
     raw = re.sub(r"^```(?:sql)?\s*", "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\s*```$", "", raw)
     return raw.strip()
@@ -105,17 +102,14 @@ SQL used:
 Result:
 {data_str}"""
 
-    client = _llm_client()
-    response = client.chat.completions.create(
-        model=ai_models.chat_model(),
-        messages=[
+    return ai_models.chat_completion(
+        [
             {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
             {"role": "user",   "content": user_msg},
         ],
         temperature=0.3,
-        max_tokens=120,
+        max_tokens=160,
     )
-    return ai_models.clean_reply(response.choices[0].message.content)
 
 
 def is_safe_sql(sql: str) -> bool:

@@ -556,18 +556,12 @@ Rules:
 - Vary chart types for visual interest.
 - Choose combinations that tell a clear story about the data."""
 
-    llm = OpenAI(
-        base_url=os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
-        api_key=os.environ.get("NVIDIA_API_KEY", ""),
-    )
     try:
-        llm_resp = llm.chat.completions.create(
-            model=ai_models.chat_model(),
-            messages=[{"role": "user", "content": prompt}],
+        text = ai_models.chat_completion(
+            [{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=700,
         )
-        text = ai_models.clean_reply(llm_resp.choices[0].message.content)
 
         # Extract JSON array (LLM may wrap it in prose)
         match = re.search(r'\[[\s\S]*\]', text)

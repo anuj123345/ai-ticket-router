@@ -9,15 +9,18 @@ Pipeline:
   store     -> persist to Supabase
 """
 # v3 - _query_embedding fully inlined, zero cross-module imports
+import json
+import logging
 import os
 import re
-import json
 from typing import Optional
 
 from openai import OpenAI
 
 from models.db import get_client
 from services import ai_models
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -337,13 +340,12 @@ def _build_messages(history: list, llm: OpenAI) -> list:
         + "\n".join(f"User: {t['question']}\nAssistant: {t['answer']}" for t in old_turns)
     )
     try:
-        r = llm.chat.completions.create(
-            model=_model(),
-            messages=[{"role": "user", "content": summary_prompt}],
+        summary = ai_models.chat_completion(
+            [{"role": "user", "content": summary_prompt}],
             temperature=0.2,
             max_tokens=200,
+            nim=llm,
         )
-        summary = ai_models.clean_reply(r.choices[0].message.content)
     except Exception:
         summary = f"[Earlier conversation: {len(old_turns)} exchanges]"
 
@@ -470,18 +472,17 @@ def run_rag(question: str, history: list = None,
     )
 
     try:
-        create_kwargs = dict(
+        raw = ai_models.chat_completion(
+            messages,
             model=model,
-            messages=messages,
             temperature=cfg["temperature"],
             max_tokens=cfg["max_tokens"],
+            nim=llm,
         )
-        if cfg["extra_body"]:
-            create_kwargs["extra_body"] = cfg["extra_body"]
-        resp = llm.chat.completions.create(**create_kwargs)
-        raw = ai_models.clean_reply(resp.choices[0].message.content)
     except Exception as exc:
-        raw = f"<answer>Sorry, I encountered an error: {exc}</answer>\nOUTDATED_FLAG: NO"
+        log.error("Smart Search answer failed (%s): %s", model, exc)
+        raw = ("<answer>Sorry, I couldn't generate an answer right now. "
+               "Please try again in a moment.</answer>\nOUTDATED_FLAG: NO")
 
     # 3. Parse
     parsed = _parse_response(raw)

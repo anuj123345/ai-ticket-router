@@ -3,8 +3,12 @@ Response Generator — uses RAG context + LLM to draft a helpful,
 professional reply to a support ticket. Human reviews before sending.
 """
 
+import logging
+
 from services.llm_client import chat
 from services import rag
+
+log = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are a helpful internal support agent at a tech company.
 Your job is to draft a clear, professional, and empathetic response to an employee support ticket.
@@ -67,7 +71,12 @@ Please draft a helpful response to this ticket."""
         {"role": "user", "content": user_message},
     ]
 
-    draft = chat(messages, temperature=0.4, max_tokens=600)
+    try:
+        draft = chat(messages, temperature=0.4, max_tokens=600)
+    except Exception as e:
+        log.error("Draft generation failed: %s", e)
+        draft = (f"[AI draft unavailable: {e}. "
+                 "Please write the response manually before approving.]")
 
     return {
         "draft": draft,
