@@ -567,7 +567,7 @@ Rules:
             temperature=0.1,
             max_tokens=700,
         )
-        text = llm_resp.choices[0].message.content.strip()
+        text = ai_models.clean_reply(llm_resp.choices[0].message.content)
 
         # Extract JSON array (LLM may wrap it in prose)
         match = re.search(r'\[[\s\S]*\]', text)

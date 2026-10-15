@@ -218,3 +218,10 @@ def test_chat_picker_maps_old_saved_model_ids_to_a_working_tier():
     assert rag_graph.resolve_model_tier("meta/llama-3.1-8b-instruct") == rag_graph.DEFAULT_MODEL
     assert rag_graph.resolve_model_tier(None) == rag_graph.DEFAULT_MODEL
     assert rag_graph.resolve_model_tier(rag_graph.POWER_MODEL) == "power"
+
+
+def test_reasoning_block_is_stripped_before_parsing():
+    assert ai_models.clean_reply("<think>let me count\nrows</think>\nSELECT 1") == "SELECT 1"
+    assert ai_models.clean_reply("<think>never finished") == ""
+    assert ai_models.clean_reply("  plain answer ") == "plain answer"
+    assert ai_models.clean_reply(None) == ""

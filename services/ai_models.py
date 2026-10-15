@@ -11,20 +11,27 @@ Env vars:
   NVIDIA_API_KEY       required
   NVIDIA_BASE_URL      default https://integrate.api.nvidia.com/v1
   NVIDIA_MODEL         chat model (classification, drafts, Ops, chat, Data Studio)
+  NVIDIA_POWER_MODEL   larger model behind the "Power" option in Smart Search
   NVIDIA_EMBED_MODEL   embedding model
+
+Check them live at /admin/health (admin only).
 """
 from __future__ import annotations
 
 import logging
 import math
 import os
+import re
 
 from openai import OpenAI
 
 log = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL    = "https://integrate.api.nvidia.com/v1"
-DEFAULT_CHAT_MODEL  = "nvidia/llama-3.1-nemotron-70b-instruct"
+# Picked from a live /admin/health run on 2026-10-15: both answered in <2s.
+# (meta/llama-3.1-70b-instruct retired 2026-08-26; nemotron-3-ultra-550b timed out.)
+DEFAULT_CHAT_MODEL  = "nvidia/nemotron-3.5-lightning-30b-a3b"
+DEFAULT_POWER_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 DEFAULT_EMBED_MODEL = "nvidia/nemotron-3-embed-1b"
 
 # Must match the column type public.doc_chunks.embedding vector(1024).
@@ -40,6 +47,23 @@ class ModelUnavailableError(RuntimeError):
 
 def chat_model() -> str:
     return os.environ.get("NVIDIA_MODEL") or DEFAULT_CHAT_MODEL
+
+
+def power_model() -> str:
+    return os.environ.get("NVIDIA_POWER_MODEL") or DEFAULT_POWER_MODEL
+
+
+_THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
+
+
+def clean_reply(text: str | None) -> str:
+    """Strip a reasoning block (<think>...</think>) that some Nemotron models
+    put before the answer, so JSON/SQL parsing sees only the answer."""
+    text = _THINK_RE.sub("", text or "")
+    # Unclosed block (hit max_tokens mid-thought): drop it entirely.
+    if text.lstrip().lower().startswith("<think>"):
+        return ""
+    return text.strip()
 
 
 def embed_model() -> str:

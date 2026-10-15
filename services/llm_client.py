@@ -39,4 +39,4 @@ def chat(messages: list[dict], temperature: float = 0.2, max_tokens: int = 1024)
         temperature=temperature,
         max_tokens=max_tokens,
     )
-    return response.choices[0].message.content.strip()
+    return ai_models.clean_reply(response.choices[0].message.content)

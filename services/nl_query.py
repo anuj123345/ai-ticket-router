@@ -77,7 +77,7 @@ def generate_sql(question: str) -> str:
         temperature=0.0,
         max_tokens=512,
     )
-    raw = response.choices[0].message.content.strip()
+    raw = ai_models.clean_reply(response.choices[0].message.content)
     raw = re.sub(r"^```(?:sql)?\s*", "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\s*```$", "", raw)
     return raw.strip()
@@ -115,7 +115,7 @@ Result:
         temperature=0.3,
         max_tokens=120,
     )
-    return response.choices[0].message.content.strip()
+    return ai_models.clean_reply(response.choices[0].message.content)
 
 
 def is_safe_sql(sql: str) -> bool:

@@ -68,7 +68,7 @@ _DATA_STOP = {
 # Tiers the chat UI offers. The UI sends the tier key ("standard"/"power");
 # the actual model IDs live only here and in ai_models, so a model retirement
 # is a one-line change (or an env var change) instead of a UI edit.
-POWER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
+POWER_MODEL = ai_models.power_model()   # NVIDIA_POWER_MODEL env var
 
 AVAILABLE_MODELS = {
     "standard": {
@@ -81,8 +81,8 @@ AVAILABLE_MODELS = {
     },
     "power": {
         "model":       POWER_MODEL,
-        "label":       "Nemotron 550B",
-        "tag":         "Power",
+        "label":       "Power",
+        "tag":         "Deeper",
         "temperature": 0.6,
         "max_tokens":  2048,
         "extra_body":  None,
@@ -343,7 +343,7 @@ def _build_messages(history: list, llm: OpenAI) -> list:
             temperature=0.2,
             max_tokens=200,
         )
-        summary = r.choices[0].message.content.strip()
+        summary = ai_models.clean_reply(r.choices[0].message.content)
     except Exception:
         summary = f"[Earlier conversation: {len(old_turns)} exchanges]"
 
@@ -479,7 +479,7 @@ def run_rag(question: str, history: list = None,
         if cfg["extra_body"]:
             create_kwargs["extra_body"] = cfg["extra_body"]
         resp = llm.chat.completions.create(**create_kwargs)
-        raw = resp.choices[0].message.content.strip()
+        raw = ai_models.clean_reply(resp.choices[0].message.content)
     except Exception as exc:
         raw = f"<answer>Sorry, I encountered an error: {exc}</answer>\nOUTDATED_FLAG: NO"
 

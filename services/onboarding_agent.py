@@ -550,7 +550,7 @@ def suggest_questions(doc_names: str | list[str], n: int = 6) -> list[str]:
             temperature=0.4,
             max_tokens=400,
         )
-        raw = resp.choices[0].message.content.strip()
+        raw = ai_models.clean_reply(resp.choices[0].message.content)
 
         questions = []
         for line in raw.splitlines():
