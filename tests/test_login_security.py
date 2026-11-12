@@ -56,3 +56,11 @@ def test_user_login_redirect_and_fresh_session(app_mod, monkeypatch):
     assert r.headers["Location"].endswith("/welcome")
     with c.session_transaction() as s:
         assert s.get("user_id") == 7 and "planted" not in s
+
+
+def test_login_form_keeps_a_safe_destination_and_drops_a_foreign_one(app_mod):
+    c = app_mod.app.test_client()
+    html = c.get("/login?next=/data-studio").get_data(as_text=True)
+    assert 'action="/login?next=/data-studio"' in html
+    html = c.get("/login?next=https://evil.example").get_data(as_text=True)
+    assert 'action="/login"' in html and "evil" not in html

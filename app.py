@@ -110,7 +110,8 @@ def login():
         else:
             error = "Invalid email or password."
 
-    return render_template("login.html", error=error, email=email)
+    return render_template("login.html", error=error, email=email,
+                           next_url=safe_next(request.args.get("next"), ""))
 
 
 @app.route("/register", methods=["GET", "POST"])

@@ -227,7 +227,7 @@
     <div class="auth-error"><i class="bi bi-exclamation-circle-fill"></i> {{ error }}</div>
     {% endif %}
 
-    <form method="POST" action="/login">
+    <form method="POST" action="{{ url_for('login', next=next_url) if next_url else url_for('login') }}">
       <div class="mb-form">
         <label class="form-label">Email address</label>
         <input type="email" name="email" class="form-control" placeholder="you@company.com"
