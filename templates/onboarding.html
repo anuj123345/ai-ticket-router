@@ -457,6 +457,9 @@ function _appendAssistantMessageDOM(data, question) {
           <div class="ob-source-item">
             <div class="ob-source-name"><i class="bi bi-file-text me-1"></i>${escHtml(s.document_name)}</div>
             <div class="ob-source-excerpt">${escHtml(s.excerpt || '')}</div>
+            ${typeof s.rows_url === 'string' && s.rows_url.startsWith('/data-studio?') ? `
+            <a class="ob-source-rows" href="${escAttr(s.rows_url)}" target="_blank" rel="noopener">
+              <i class="bi bi-table me-1"></i>${escHtml(s.rows_label || 'See the rows in Data Studio')}</a>` : ''}
           </div>
         `).join('')}
       </div>

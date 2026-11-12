@@ -151,6 +151,22 @@ let lastCharts = [];        // what the server actually drew (normalised)
 let chartInstances = {};
 let openPanel = null;
 let rowsState = null;
+let pendingFromLink = null;   // from a Smart Search "See the rows" link
+
+/* ── Opening from a link: /data-studio?dataset=ID&filters=[...]&rows=1 ── */
+document.addEventListener('DOMContentLoaded', () => {
+  const p = new URLSearchParams(location.search);
+  const id = p.get('dataset');
+  const sel = document.getElementById('dsSelect');
+  if (!id || !sel) return;
+  if (![...sel.options].some(o => o.value === id)) return;
+  let f = [];
+  try { f = JSON.parse(p.get('filters') || '[]'); if (!Array.isArray(f)) f = []; } catch (e) { f = []; }
+  pendingFromLink = { filters: f, rows: p.get('rows') === '1' };
+  sel.value = id;
+  history.replaceState(null, '', location.pathname);
+  onDatasetChange();
+});
 
 /* ── Helpers ───────────────────────────────────────────── */
 function escHtml(s) {
@@ -213,7 +229,18 @@ async function onDatasetChange() {
   } catch (e) { showPlaceholder(e.message, true); return; }
   document.getElementById('controlsActions').style.display = 'flex';
   renderReport(); renderColumns(); renderFilterPanel(); renderChartRows([]);
-  await loadDashboard();
+  const link = pendingFromLink;
+  pendingFromLink = null;
+  if (link) filters = link.filters;
+  const ok = await loadDashboard();
+  if (link && ok === false) { filters = []; await loadDashboard(); }
+  if (link && ok && link.rows) {
+    rowsState = { filters: [...filters], offset: 0, limit: 100,
+                  title: 'Rows behind the Smart Search answer',
+                  sub: filters.map(f => f.label).join(' · ') || 'All rows' };
+    document.getElementById('rowsModal').style.display = 'flex';
+    fetchRows();
+  }
 }
 
 /* ── Import check ──────────────────────────────────────── */

@@ -367,7 +367,7 @@ def compute(dataset_id: int, meta: dict, r: dict) -> dict:
             lines.append(f"- Row {row['row']}: {cells}")
         if n > len(res["rows"]):
             lines.append(f"Showing the first {len(res['rows'])}. Open Data Studio to see all {n:,}.")
-        return {"text": "\n".join(lines), "matched": n}
+        return {"text": "\n".join(lines), "matched": n, "filters": r["filters"]}
 
     spec = {"filters": r["filters"], "measures": [r["measure"], {"agg": "count_rows"}]}
     if r["group"]:
@@ -380,7 +380,8 @@ def compute(dataset_id: int, meta: dict, r: dict) -> dict:
            + f". {n:,} of {total_rows:,} rows matched.")
 
     if n == 0:
-        return {"text": f"No rows match{where.replace(' where ', ': ', 1)}.\n\n{how}", "matched": 0}
+        return {"text": f"No rows match{where.replace(' where ', ': ', 1)}.\n\n{how}", "matched": 0,
+                "filters": r["filters"]}
 
     if not r["group"]:
         v = out["total"]["m"][0]
@@ -390,7 +391,7 @@ def compute(dataset_id: int, meta: dict, r: dict) -> dict:
                     else f"There are **{n:,}** rows.")
         else:
             head = f"The {label}{where} is **{_fmt(r, v)}**."
-        return {"text": f"{head}\n\n{how}", "matched": n}
+        return {"text": f"{head}\n\n{how}", "matched": n, "filters": r["filters"]}
 
     groups = [g for g in out["groups"] if g["g"] is not None]
     rev = r["order"] == "desc"
@@ -430,7 +431,13 @@ def compute(dataset_id: int, meta: dict, r: dict) -> dict:
         lines.append(f"({blank['n']:,} row(s) have no {gname} and are not shown.)")
     lines.append("")
     lines.append(how)
-    return {"text": "\n".join(lines), "matched": n}
+    return {"text": "\n".join(lines), "matched": n, "filters": r["filters"]}
+
+
+def rows_url(dataset_id: int, filters: list) -> str:
+    """Link that opens Data Studio on this dataset, with these filters, rows showing."""
+    from urllib.parse import urlencode
+    return "/data-studio?" + urlencode({"dataset": dataset_id, "filters": json.dumps(filters), "rows": 1})
 
 
 # ── Entry point used by Smart Search ─────────────────────────────────────────
@@ -458,8 +465,9 @@ def answer(question: str, doc_names: list[str]) -> dict | None:
             last_clarify = (ds, str(c))
             continue
         src = {"document_name": ds["document_name"], "dataset_id": ds["id"],
-               "excerpt": f"Calculated by the exact engine on {meta['rows']:,} rows of "
-                          f"{ds['label']}. Open Data Studio to see the rows."}
+               "excerpt": f"Calculated by the exact engine on {meta['rows']:,} rows of {ds['label']}.",
+               "rows_url": rows_url(ds["id"], out["filters"]),
+               "rows_label": f"See the {out['matched']:,} row(s) behind this answer"}
         return {"answer": out["text"], "sources": [src], "kind": "exact"}
     if last_clarify:
         ds, msg = last_clarify

@@ -2108,3 +2108,9 @@ footer {
 }
 
 .nav-logout:hover { color: var(--danger); }
+
+.ob-source-rows {
+  display: inline-flex; align-items: center; margin-top: 6px;
+  font-size: 0.8125rem; font-weight: 600; color: var(--primary); text-decoration: none;
+}
+.ob-source-rows:hover { text-decoration: underline; }

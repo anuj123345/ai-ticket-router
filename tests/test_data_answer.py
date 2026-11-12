@@ -238,3 +238,18 @@ def test_full_dates_given_for_a_year_column_mean_that_year(ds, planner):
              "filters": [{"column": "Year", "op": "between", "from": "2025-01-01", "to": "2025-12-31"}]})
     out = ask()["answer"]
     assert out.startswith("**2** rows where Year from 2025 to 2025")
+
+
+def test_answer_links_to_exactly_its_rows(ds, planner):
+    from urllib.parse import parse_qs, urlparse
+    planner({"kind": "aggregate", "measure": {"agg": "count_rows"},
+             "filters": [{"column": "Segment", "op": "eq", "value": "government"}]})
+    src = ask()["sources"][0]
+    url = urlparse(src["rows_url"])
+    assert url.path == "/data-studio"
+    q = parse_qs(url.query)
+    filters = json.loads(q["filters"][0])
+    assert q["dataset"] == [str(src["dataset_id"])] and q["rows"] == ["1"]
+    assert src["rows_label"] == "See the 6 row(s) behind this answer"
+    # the link's filters select the same 6 rows in Data Studio
+    assert studio.drill_rows(src["dataset_id"], filters)["matched"] == 6
