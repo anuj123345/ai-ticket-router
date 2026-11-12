@@ -437,11 +437,20 @@ def answer_question(question: str, history: list[dict] | None = None,
 def save_verified_qa(conversation_id: int):
     """Called on thumbs up — saves Q&A to verified_qa or increments upvotes."""
     db = get_client()
-    conv = db.table("conversations").select("question, answer").eq("id", conversation_id).execute()
+    conv = db.table("conversations").select("question, answer, sources").eq("id", conversation_id).execute()
     if not conv.data:
         return
 
     row = conv.data[0]
+    # Answers computed from spreadsheet data are recalculated on every ask,
+    # so the data can change without a stale "verified" number being reused.
+    try:
+        srcs = row.get("sources")
+        srcs = json.loads(srcs) if isinstance(srcs, str) else (srcs or [])
+    except (TypeError, ValueError):
+        srcs = []
+    if any(isinstance(s, dict) and s.get("dataset_id") for s in srcs):
+        return
     q, a = row["question"], row["answer"]
 
     existing = db.table("verified_qa").select("id, upvotes").eq("question", q).execute()

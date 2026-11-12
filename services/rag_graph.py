@@ -49,21 +49,6 @@ def _query_embedding(text: str):
 
 STRUCTURED_EXTS = {"xlsx", "xls", "csv"}
 
-LIST_RE = re.compile(
-    r"\b(list all|show all|give all|display all|all students|all records|"
-    r"enumerate|full list|complete list|every student|each student)\b",
-    re.IGNORECASE,
-)
-
-_DATA_STOP = {
-    "give", "help", "show", "list", "find", "tell", "get", "need", "want",
-    "have", "what", "from", "with", "that", "this", "they", "been", "which",
-    "percent", "percentage", "who", "are", "the", "you", "already", "uploaded",
-    "many", "number", "count", "total", "about", "for", "and", "now", "please",
-    "can", "could", "would", "information", "data", "file", "sheet", "excel",
-    "document", "dropout", "using", "based",
-}
-
 # ---------------------------------------------------------------------------
 # Model registry
 # ---------------------------------------------------------------------------
@@ -112,8 +97,10 @@ Instructions:
 - Answer using ONLY the provided context. Do not invent information.
 - If context is insufficient, say: "I couldn't find this in the available documentation."
 - Be concise. Use bullet points for multi-step processes.
-- For structured data (Excel/CSV): always write a full sentence answer (e.g. "There are **14 students** out of 200 total (7%) who match your criteria."). Never output just a raw number. Then add a brief sample of 2-3 matching rows so the user can verify. End with "Would you like me to list all N records?"
-- For count/percentage questions: use pre-computed numbers from context -- do not recalculate.
+- Spreadsheet (Excel/CSV) excerpts are only a small sample of rows. NEVER count, add up,
+  average or rank rows from them, and never state a number of rows. If the question needs
+  such a number, say: "I couldn't calculate this exactly. Try asking with a column name,
+  for example: How many rows have Status = Active?"
 - At the end include:
   OUTDATED_FLAG: YES or NO
   OUTDATED_REASON: (one sentence, only if YES)
@@ -234,88 +221,6 @@ def _retrieve_chunks(question: str, doc_filter) -> list:
     return merged
 
 
-_ORDINAL_RE = re.compile(r'\b(\d+)(?:st|nd|rd|th)\b', re.IGNORECASE)
-
-def _normalize_query(text: str) -> str:
-    """Normalize ordinals (9th→9), lower-case, keep quoted phrases intact."""
-    return _ORDINAL_RE.sub(r'\1', text).lower()
-
-def _python_aggregate(doc_name: str, question: str) -> Optional[str]:
-    """Python-level row counting for xlsx/csv -- avoids context overflow."""
-    try:
-        # Fetch ALL chunks for this document (paginate in batches of 1000)
-        all_chunks = []
-        offset = 0
-        while True:
-            resp = (get_client().table("doc_chunks")
-                    .select("content")
-                    .eq("document_name", doc_name)
-                    .range(offset, offset + 999)
-                    .execute())
-            batch = resp.data or []
-            all_chunks.extend(batch)
-            if len(batch) < 1000:
-                break
-            offset += 1000
-
-        if not all_chunks:
-            return None
-
-        full_text = "\n".join(c.get("content", "") for c in all_chunks)
-        data_lines = [
-            ln.strip() for ln in full_text.splitlines()
-            if ln.strip() and not ln.strip().startswith("##") and not ln.strip().startswith("[")
-        ]
-        total = len(data_lines)
-        if total == 0:
-            return None
-
-        # Extract quoted phrases first (e.g. 'Wrong Entry'), then individual words
-        q_normalized = _normalize_query(question)
-        phrases = re.findall(r"['\"](.+?)['\"]", q_normalized)
-        words = [w for w in re.findall(r"\b\w{2,}\b", q_normalized)
-                 if w not in _DATA_STOP and not any(w in p for p in phrases)]
-
-        def line_matches_all(ln: str) -> bool:
-            ln_l = _normalize_query(ln)
-            return (all(p in ln_l for p in phrases) and
-                    all(w in ln_l for w in words[:4]))
-
-        def line_matches_any(ln: str) -> bool:
-            ln_l = _normalize_query(ln)
-            phrase_hit = any(p in ln_l for p in phrases) if phrases else False
-            word_hit   = any(w in ln_l for w in words[:4]) if words else False
-            return phrase_hit or word_hit
-
-        matched = [ln for ln in data_lines if line_matches_all(ln)]
-        if not matched:
-            matched = [ln for ln in data_lines if line_matches_any(ln)]
-
-        search_terms = phrases + words[:4]
-        pct = round(len(matched) / total * 100, 2) if total > 0 else 0
-        wants_list = bool(LIST_RE.search(question))
-        summary = (
-            f"=== DATA SUMMARY: '{doc_name}' ===\n"
-            f"Total records: {total}\n"
-            f"Matching records: {len(matched)} ({pct}%)\n"
-            f"Search terms: {', '.join(search_terms)}"
-        )
-
-        if wants_list or len(matched) <= 10:
-            # Show every record — do NOT offer to list again
-            rows_text = "\n".join(matched[:60])
-            overflow = f"\n[...and {len(matched) - 60} more — ask to see the rest]" if len(matched) > 60 else ""
-            label = "ALL MATCHING RECORDS" if len(matched) <= 60 else f"FIRST 60 OF {len(matched)} RECORDS"
-            return f"{summary}\n\n=== {label} ===\n{rows_text}{overflow}\n\nDo NOT offer to list records again — they are already shown above."
-        else:
-            # More than 10 results — show a sample and offer the rest
-            sample = "\n".join(matched[:5])
-            return (f"{summary}\n\n=== SAMPLE (first 5 of {len(matched)}) ===\n{sample}"
-                    f"\n\nTell the user: {len(matched)} records found. Offer to list all of them.")
-    except Exception:
-        return None
-
-
 # ---------------------------------------------------------------------------
 # Memory
 # ---------------------------------------------------------------------------
@@ -421,32 +326,30 @@ def run_rag(question: str, history: list = None,
     else:
         target_structured = None
 
-    precomputed = None
-    doc_chunks  = []
-
-    if target_structured:
-        # Aggregate each structured doc and concatenate results
-        docs_to_agg = [target_structured] if isinstance(target_structured, str) else target_structured
-        parts = []
-        for sd in docs_to_agg:
-            agg = _python_aggregate(sd, question)
-            if agg:
-                parts.append(f"=== {sd} ===\n{agg}")
-        precomputed = "\n\n".join(parts) if parts else None
-        doc_chunks  = _retrieve_chunks(question, doc_filter)[:3]
-    else:
+    # Spreadsheet questions are answered by the exact engine (data_answer),
+    # never by the model reading text excerpts.
+    from services import data_answer
+    structured = ([target_structured] if isinstance(target_structured, str)
+                  else list(target_structured or []))
+    doc_chunks = []
+    if not structured:
         doc_chunks = _retrieve_chunks(question, doc_filter)
-        struct_doc = next(
-            (c["document_name"] for c in doc_chunks
-             if c.get("document_name", "").rsplit(".", 1)[-1].lower() in STRUCTURED_EXTS),
-            None,
-        )
-        if struct_doc:
-            precomputed = _python_aggregate(struct_doc, question)
+        hit = next((c["document_name"] for c in doc_chunks
+                    if c.get("document_name", "").rsplit(".", 1)[-1].lower() in STRUCTURED_EXTS), None)
+        if hit:
+            structured = [hit]
+    if structured:
+        try:
+            exact = data_answer.answer(question, structured)
+        except Exception:
+            log.exception("Exact data answer failed; falling back to document search")
+            exact = None
+        if exact:
+            return _finish(question, exact["answer"], exact["sources"], False, None, True)
+        if not doc_chunks:
+            doc_chunks = _retrieve_chunks(question, doc_filter)[:3]
 
-    if precomputed:
-        context = precomputed
-    elif doc_chunks:
+    if doc_chunks:
         context = "=== DOCUMENTATION ===\n" + "\n\n---\n\n".join(
             f"[{c['document_name']}]\n{c['content']}" for c in doc_chunks
         )
@@ -461,7 +364,7 @@ def run_rag(question: str, history: list = None,
             sources.append({"document_name": name,
                             "excerpt": c.get("content", "")[:220] + "..."})
 
-    has_docs = bool(doc_chunks) or bool(precomputed)
+    has_docs = bool(doc_chunks)
 
     # 2. Generate
     llm      = _llm()
@@ -487,24 +390,29 @@ def run_rag(question: str, history: list = None,
     # 3. Parse
     parsed = _parse_response(raw)
 
-    # 4. Store
+    return _finish(question, parsed["answer"], sources, parsed["possibly_outdated"],
+                   parsed["outdated_reason"], has_docs)
+
+
+def _finish(question: str, answer: str, sources: list, outdated: bool,
+            outdated_reason, has_docs: bool) -> dict:
+    """Store the exchange and shape the reply."""
     conv_id = None
     try:
         r = get_client().table("conversations").insert({
             "question":            question,
-            "answer":              parsed["answer"],
+            "answer":              answer,
             "sources":             json.dumps(sources),
-            "is_outdated_flagged": parsed["possibly_outdated"],
+            "is_outdated_flagged": outdated,
         }).execute()
         conv_id = r.data[0]["id"] if r.data else None
     except Exception:
-        pass
-
+        log.exception("Could not store the conversation")
     return {
-        "answer":            parsed["answer"],
+        "answer":            answer,
         "sources":           sources,
-        "possibly_outdated": parsed["possibly_outdated"],
-        "outdated_reason":   parsed["outdated_reason"],
+        "possibly_outdated": outdated,
+        "outdated_reason":   outdated_reason,
         "conversation_id":   conv_id,
         "has_docs":          has_docs,
     }
