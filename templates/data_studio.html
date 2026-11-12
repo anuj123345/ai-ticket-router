@@ -476,12 +476,16 @@ function renderDashboard(data) {
   (data.errors || []).forEach(e => notices.push(`<div class="ds-alert ds-alert-warn"><i class="bi bi-exclamation-triangle-fill"></i> A chart was skipped: ${escHtml(e)}</div>`));
   document.getElementById('dsNotices').innerHTML = notices.join('');
 
-  document.getElementById('kpiRow').innerHTML = data.kpis.map(k => `
-    <div class="ds-kpi-card" title="Exact: ${escHtml(k.exact)}">
-      <div class="ds-kpi-value">${escHtml(k.value)}</div>
+  document.getElementById('kpiRow').innerHTML = data.kpis.map(k => {
+    // Long totals: short form on the card, the exact figure right under it.
+    const long = k.short && k.value.length > 11;
+    return `<div class="ds-kpi-card" title="Exact: ${escHtml(k.value)}">
+      <div class="ds-kpi-value">${escHtml(long ? k.short : k.value)}</div>
+      ${long ? `<div class="ds-kpi-exact">${escHtml(k.value)}</div>` : ''}
       <div class="ds-kpi-label">${escHtml(k.label)}</div>
       <div class="ds-kpi-sub">${escHtml(k.sub || '')}</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   Object.values(chartInstances).forEach(c => c.destroy());
   chartInstances = {};
@@ -681,7 +685,8 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && rowsState)
 /* ── KPIs ────────────────────────────────────────────────── */
 .ds-kpi-row { display: flex; gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
 .ds-kpi-card { flex: 1; min-width: 170px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border-radius: var(--radius); padding: 1.1rem 1.25rem; text-align: center; cursor: help; }
-.ds-kpi-value { font-size: 1.7rem; font-weight: 800; color: #fff; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; word-break: break-all; }
+.ds-kpi-value { font-size: 1.7rem; font-weight: 800; color: #fff; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ds-kpi-exact { font-size: 0.8rem; color: rgba(255,255,255,0.92); font-variant-numeric: tabular-nums; margin-top: 2px; }
 .ds-kpi-label { font-size: 0.75rem; color: rgba(255,255,255,0.88); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
 .ds-kpi-sub { font-size: 0.72rem; color: rgba(255,255,255,0.7); margin-top: 2px; }
 .ds-filter-badge { padding: 8px 14px; border-radius: 8px; margin-bottom: 0.75rem; background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); font-size: 0.82rem; color: var(--text-2); }

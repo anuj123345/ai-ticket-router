@@ -259,3 +259,13 @@ def test_a_dataset_cut_off_half_way_is_never_shown(engine, monkeypatch):
         dataset_store.save_dataset(doc_id, "c.xlsx", a, set())
     monkeypatch.setattr(engine, "table", real_table)
     assert dataset_store.list_datasets() == []
+
+
+def test_headline_cards_pick_the_main_amounts_not_the_first_columns():
+    """Financial Sample: Sales and Profit must lead, not Units Sold / Manufacturing Price."""
+    names = [("Units Sold", "sum"), ("Manufacturing Price", "avg"), ("Sale Price", "avg"),
+             ("Gross Sales", "sum"), ("Sales", "sum"), ("Discounts", "sum"), ("COGS", "sum"),
+             ("Profit", "sum")]
+    meta = {"columns": [{"pos": i, "name": n, "type": "number", "default_agg": a,
+                         "stats": {"filled": 700}} for i, (n, a) in enumerate(names)]}
+    assert [c["name"] for c in studio.kpi_columns(meta)] == ["Sales", "Profit", "Gross Sales", "Units Sold"]

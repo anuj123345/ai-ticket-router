@@ -397,6 +397,34 @@ def auto_charts(meta: dict) -> list[dict]:
     return out[:6]
 
 
+_KPI_RANK = [
+    ({"sales", "revenue", "turnover", "income", "collection", "collections"}, 0),
+    ({"profit", "earnings", "surplus"}, 1),
+    ({"amount", "value", "total", "sanctioned", "disbursed", "paid", "spent", "spend"}, 2),
+    ({"units", "qty", "quantity", "pieces", "students", "enrolment", "enrollment",
+      "beneficiaries", "count", "number", "volume"}, 3),
+    ({"cost", "cogs", "expense", "expenses", "budget", "fee", "fees"}, 4),
+]
+_KPI_SECONDARY = {"gross", "discount", "discounts", "tax", "manufacturing", "unit"}
+
+
+def kpi_columns(meta: dict, n: int = 4) -> list[dict]:
+    """The number columns worth a headline card: main amounts first (sales,
+    profit, amounts, quantities, costs), then other totals, then averages."""
+    from services.tabular import _tokens
+    def rank(c):
+        toks = set(_tokens(c["name"]))
+        r = next((r for words, r in _KPI_RANK if toks & words), 5)
+        if toks & _KPI_SECONDARY:
+            r += 2
+        if c["default_agg"] == "avg":
+            r += 6
+        return (r, c["pos"])
+    cands = [c for c in meta["columns"] if c["type"] == "number" and c["default_agg"] in ("sum", "avg")
+             and c["stats"].get("filled")]
+    return sorted(cands, key=rank)[:n]
+
+
 # ── Filters ──────────────────────────────────────────────────────────────────
 
 def normalise_filters(meta: dict, filters) -> list[dict]:
@@ -460,7 +488,7 @@ def build(dataset_id: int, filters=None, charts=None) -> dict:
         except StudioError as e:
             errors.append(str(e))
 
-    numbers = [c for c in meta["columns"] if c["type"] == "number" and c["default_agg"] in ("sum", "avg")][:4]
+    numbers = kpi_columns(meta)
     kpi_measures = [{"agg": "count_rows"}]
     for c in numbers:
         kpi_measures += [{"agg": c["default_agg"], "col": c["pos"]}, {"agg": "count", "col": c["pos"]}]
@@ -481,7 +509,8 @@ def build(dataset_id: int, filters=None, charts=None) -> dict:
         kpis.append({
             "label": f"{'Total' if c['default_agg'] == 'sum' else 'Average'} {c['name']}",
             "value": fmt_number(v, c["format"], c["default_agg"]),
-            "short": _short(v) if c["format"] == "plain" or c["format"].startswith("currency") else None,
+            "short": _short(v) if (c["format"] == "plain" or c["format"].startswith("currency"))
+                     and c["default_agg"] == "sum" else None,
             "exact": v,
             "sub": f"{missing:,} row(s) blank, not counted" if missing else f"all {filled:,} rows",
         })
