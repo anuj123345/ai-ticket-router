@@ -19,7 +19,6 @@ from services.nl_query import nl_query as run_nl_query
 from services.doc_processor import (process_and_store, get_all_documents,
                                     delete_document, embed_pending_chunks)
 from services.onboarding_agent import answer_question, save_verified_qa, get_feedback_stats
-from services.data_engine import get_data_documents, build_dashboard
 
 load_dotenv()
 
@@ -584,14 +583,18 @@ def onboarding_delete(doc_id: int):
 def onboarding_admin():
     documents = get_all_documents()
     stats     = get_feedback_stats()
-    # Flag which xlsx/csv docs are missing from dataset_rows
-    from services.data_engine import get_data_documents
-    data_doc_names = {d["name"] for d in get_data_documents()}
+    # Flag spreadsheets that Data Studio has no rows for (import failed).
+    from services import dataset_store
+    try:
+        ready = {d["document_id"] for d in dataset_store.list_datasets()}
+        ready |= {d["document_id"] for d in dataset_store.legacy_documents()}
+    except Exception:
+        app.logger.exception("Could not list Data Studio datasets")
+        ready = None
     for doc in documents:
-        if doc["file_type"].lower() in ("xlsx", "xls", "csv"):
-            doc["needs_sync"] = doc["name"] not in data_doc_names
-        else:
-            doc["needs_sync"] = False
+        doc["needs_sync"] = (ready is not None
+                             and doc["file_type"].lower() in dataset_store.TABULAR_TYPES
+                             and doc["id"] not in ready)
     return render_template("onboarding_admin.html", documents=documents, stats=stats)
 
 
@@ -599,58 +602,106 @@ def onboarding_admin():
 
 # ─── Data Studio ──────────────────────────────────────────────────────────────
 
+def _studio_call(fn, *args, **kwargs):
+    """Run a Data Studio action: user mistakes -> 400 with the reason,
+    anything else -> logged 500 with a short message."""
+    from services import studio, dataset_store, tabular
+    try:
+        return jsonify(fn(*args, **kwargs))
+    except (studio.StudioError, tabular.TabularError) as e:
+        return jsonify({"error": str(e)}), 400
+    except dataset_store.DatasetNotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        app.logger.exception("Data Studio request failed")
+        return jsonify({"error": f"Data Studio could not do that ({type(e).__name__}). "
+                                 "Please try again."}), 500
+
+
+def _int_or_none(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
 @app.route("/data-studio")
 @login_required
 def data_studio():
-    docs = get_data_documents()
-    return render_template("data_studio.html", documents=docs)
-
-
-@app.route("/data-studio/suggest", methods=["POST"])
-@login_required
-def data_studio_suggest():
-    from services.data_engine import suggest_charts
-    body = request.get_json(silent=True) or {}
-    doc  = body.get("document_name", "").strip()
-    if not doc:
-        return jsonify({"error": "document_name required"}), 400
+    from services import studio
     try:
-        configs = suggest_charts(doc)
-        return jsonify({"chart_configs": configs})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        datasets = studio.list_all()
+        load_error = None
+    except Exception:
+        app.logger.exception("Could not list Data Studio datasets")
+        datasets, load_error = [], "Could not load your files. Please refresh the page."
+    return render_template("data_studio.html", datasets=datasets, load_error=load_error,
+                           is_admin=bool(session.get("admin_authenticated")))
 
 
-@app.route("/data-studio/columns", methods=["POST"])
+@app.route("/data-studio/open", methods=["POST"])
 @login_required
-def data_studio_columns():
-    from services.data_engine import get_column_info
-    body = request.get_json(silent=True) or {}
-    doc  = body.get("document_name", "").strip()
-    if not doc:
-        return jsonify({"error": "document_name required"}), 400
-    try:
-        return jsonify(get_column_info(doc))
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+def data_studio_open():
+    from services import studio
+    b = request.get_json(silent=True) or {}
+    return _studio_call(studio.open_dataset, _int_or_none(b.get("dataset_id")),
+                        _int_or_none(b.get("document_id")))
 
 
 @app.route("/data-studio/load", methods=["POST"])
 @login_required
 def data_studio_load():
-    body          = request.get_json(silent=True) or {}
-    doc           = body.get("document_name", "").strip()
-    quarter       = body.get("quarter") or None
-    filters       = body.get("filters") or None
-    chart_configs = body.get("chart_configs") or None
-    if not doc:
-        return jsonify({"error": "document_name required"}), 400
-    try:
-        result = build_dashboard(doc, quarter=quarter,
-                                 filters=filters, chart_configs=chart_configs)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    from services import studio
+    b = request.get_json(silent=True) or {}
+    ds = _int_or_none(b.get("dataset_id"))
+    if ds is None:
+        return jsonify({"error": "dataset_id required"}), 400
+    return _studio_call(studio.build, ds, b.get("filters") or [], b.get("charts") or None)
+
+
+@app.route("/data-studio/values", methods=["POST"])
+@login_required
+def data_studio_values():
+    from services import studio
+    b = request.get_json(silent=True) or {}
+    ds, col = _int_or_none(b.get("dataset_id")), _int_or_none(b.get("col"))
+    if ds is None or col is None:
+        return jsonify({"error": "dataset_id and col required"}), 400
+    return _studio_call(studio.column_values, ds, col, b.get("filters") or [], b.get("grain"))
+
+
+@app.route("/data-studio/rows", methods=["POST"])
+@login_required
+def data_studio_rows():
+    from services import studio
+    b = request.get_json(silent=True) or {}
+    ds = _int_or_none(b.get("dataset_id"))
+    if ds is None:
+        return jsonify({"error": "dataset_id required"}), 400
+    return _studio_call(studio.drill_rows, ds, b.get("filters") or [],
+                        _int_or_none(b.get("limit")) or 100, _int_or_none(b.get("offset")) or 0)
+
+
+@app.route("/data-studio/settings", methods=["POST"])
+@admin_required
+def data_studio_settings():
+    from services import studio
+    b = request.get_json(silent=True) or {}
+    ds = _int_or_none(b.get("dataset_id"))
+    if ds is None:
+        return jsonify({"error": "dataset_id required"}), 400
+    return _studio_call(studio.update_settings, ds, b.get("changes") or {})
+
+
+@app.route("/data-studio/suggest", methods=["POST"])
+@login_required
+def data_studio_suggest():
+    from services import studio
+    b = request.get_json(silent=True) or {}
+    ds = _int_or_none(b.get("dataset_id"))
+    if ds is None:
+        return jsonify({"error": "dataset_id required"}), 400
+    return _studio_call(lambda: {"charts": studio.suggest(ds)})
 
 
 # ─── Run ─────────────────────────────────────────────────────────────────────

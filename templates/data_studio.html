@@ -8,14 +8,18 @@
   <div class="ds-header">
     <div>
       <h1 class="ds-title"><i class="bi bi-bar-chart-steps me-2"></i>Data Studio</h1>
-      <p class="ds-subtitle">Upload an Excel or CSV file via Smart Search Admin, then visualise it here</p>
+      <p class="ds-subtitle">Exact numbers from your Excel and CSV files. Click any bar or slice to see the rows behind it.</p>
     </div>
     <a href="/onboarding/admin" class="btn-manage-data">
-      <i class="bi bi-cloud-upload me-1"></i> Manage Data
+      <i class="bi bi-cloud-upload me-1"></i> Upload files
     </a>
   </div>
 
-  {% if not documents %}
+  {% if load_error %}
+  <div class="ds-alert ds-alert-warn"><i class="bi bi-exclamation-triangle-fill"></i> {{ load_error }}</div>
+  {% endif %}
+
+  {% if not datasets %}
   <div class="ds-empty">
     <i class="bi bi-file-earmark-spreadsheet" style="font-size:2.5rem;color:var(--text-3)"></i>
     <p>No Excel or CSV files uploaded yet.</p>
@@ -28,562 +32,547 @@
   <!-- ── Top controls ── -->
   <div class="ds-controls">
     <div class="ds-doc-select-wrap">
-      <label class="ds-label"><i class="bi bi-file-earmark-spreadsheet me-1"></i>Dataset</label>
-      <select id="docSelect" class="ds-select" onchange="onDatasetChange()">
+      <label class="ds-label">File</label>
+      <select id="dsSelect" class="ds-select" onchange="onDatasetChange()">
         <option value="">— Select a file —</option>
-        {% for doc in documents %}
-        <option value="{{ doc.name }}">{{ doc.name }}</option>
+        {% for d in datasets %}
+        <option value="{{ d.id if d.id else '' }}" data-doc="{{ d.document_id or '' }}" data-legacy="{{ 1 if d.legacy else 0 }}">
+          {{ d.label }}{% if d.rows %} ({{ '{:,}'.format(d.rows) }} rows){% endif %}{% if d.legacy %} — older upload, converts on open{% endif %}
+        </option>
         {% endfor %}
       </select>
     </div>
 
-    <div class="ds-quarter-wrap" id="quarterWrap" style="display:none">
-      <label class="ds-label"><i class="bi bi-calendar3 me-1"></i>Quarter</label>
-      <div class="ds-quarter-pills">
-        <button class="ds-qtr-pill active" data-q="" onclick="setQuarter(this)">All</button>
-        <button class="ds-qtr-pill" data-q="Q1" onclick="setQuarter(this)">Q1</button>
-        <button class="ds-qtr-pill" data-q="Q2" onclick="setQuarter(this)">Q2</button>
-        <button class="ds-qtr-pill" data-q="Q3" onclick="setQuarter(this)">Q3</button>
-        <button class="ds-qtr-pill" data-q="Q4" onclick="setQuarter(this)">Q4</button>
-      </div>
-    </div>
-
     <div class="ds-controls-actions" id="controlsActions" style="display:none">
-      <button class="btn-ask-ai" id="askAiBtn" onclick="suggestWithAI()">
-        <i class="bi bi-stars me-1"></i> Ask AI
+      <button class="btn-configure" id="btnReport" onclick="togglePanel('report')">
+        <i class="bi bi-clipboard-check"></i> Import check <span class="ds-badge" id="reportBadge"></span>
       </button>
-      <button class="btn-configure" id="configToggleBtn" onclick="toggleConfig()">
-        <i class="bi bi-sliders me-1"></i> Configure
+      <button class="btn-configure" id="btnColumns" onclick="togglePanel('columns')">
+        <i class="bi bi-layout-three-columns"></i> Columns
       </button>
-      <button class="btn-apply" onclick="applyDashboard()">
-        <i class="bi bi-arrow-clockwise me-1"></i> Apply
+      <button class="btn-configure" id="btnFilters" onclick="togglePanel('filters')">
+        <i class="bi bi-funnel"></i> Filters <span class="ds-badge ds-badge-blue" id="filterBadge"></span>
+      </button>
+      <button class="btn-configure" id="btnCharts" onclick="togglePanel('charts')">
+        <i class="bi bi-sliders"></i> Charts
+      </button>
+      <button class="btn-ask-ai" id="askAiBtn" onclick="suggestWithAI()" title="AI picks columns; the numbers still come from the database">
+        <i class="bi bi-stars"></i> Suggest charts
       </button>
     </div>
   </div>
 
-  <!-- ── Configure panel ── -->
-  <div class="ds-config-panel" id="configPanel" style="display:none">
+  <!-- ── Import check ── -->
+  <div class="ds-panel" id="panel-report" style="display:none"></div>
 
-    <!-- Filters section -->
-    <div class="config-section">
-      <div class="config-section-title">
-        <i class="bi bi-funnel me-1"></i> Filters
-        <span class="config-hint">Narrow down rows before charting</span>
-      </div>
-      <div class="filter-add-row">
-        <select id="filterColSelect" class="filter-select" onchange="onFilterColChange()">
-          <option value="">— Column —</option>
-        </select>
-        <select id="filterValSelect" class="filter-select">
-          <option value="">— Value —</option>
-        </select>
-        <button class="btn-add-filter" onclick="addFilter()">
-          <i class="bi bi-plus-lg"></i> Add filter
-        </button>
-        <button class="btn-clear-all" onclick="clearFilters()" id="clearFiltersBtn" style="display:none">
-          Clear all
-        </button>
-      </div>
-      <div id="filterChips" class="filter-chips"></div>
+  <!-- ── Columns ── -->
+  <div class="ds-panel" id="panel-columns" style="display:none"></div>
+
+  <!-- ── Filters ── -->
+  <div class="ds-panel" id="panel-filters" style="display:none">
+    <div class="config-section-title"><i class="bi bi-funnel"></i> Filters
+      <span class="config-hint">Every number on the page uses only the matching rows.</span></div>
+    <div class="filter-add-row">
+      <select id="filterCol" class="filter-select" onchange="onFilterColChange()"></select>
+      <div id="filterEditor" class="filter-editor"></div>
     </div>
+    <div id="filterChips" class="filter-chips"></div>
+  </div>
 
-    <!-- Charts section -->
-    <div class="config-section">
-      <div class="config-section-title">
-        <i class="bi bi-bar-chart me-1"></i> Charts
-        <span class="config-hint">Toggle, reorder columns, and change chart type per slot</span>
-      </div>
-      <div class="chart-slots-header">
-        <span></span>
-        <span class="slot-col-label">X-axis (group by)</span>
-        <span class="slot-col-label">Y-axis (metric)</span>
-        <span class="slot-col-label">Chart type</span>
-      </div>
-      <div id="chartSlots"></div>
+  <!-- ── Charts ── -->
+  <div class="ds-panel" id="panel-charts" style="display:none">
+    <div class="config-section-title"><i class="bi bi-sliders"></i> Charts
+      <span class="config-hint">Group by a column, choose what to calculate.</span></div>
+    <div class="chart-slots-header">
+      <span>Group by</span><span>Calculate</span><span>Of column</span><span>Chart</span><span></span>
     </div>
-
+    <div id="chartRows"></div>
     <div class="config-footer">
-      <button class="btn-apply-lg" onclick="applyDashboard()">
-        <i class="bi bi-arrow-clockwise me-1"></i> Apply Dashboard
-      </button>
-      <button class="btn-reset" onclick="resetToAuto()">
-        Reset to auto
-      </button>
+      <button class="btn-reset" onclick="addChartRow()"><i class="bi bi-plus-lg"></i> Add chart</button>
+      <button class="btn-apply-lg" onclick="applyCharts()"><i class="bi bi-check2"></i> Apply</button>
+      <button class="btn-reset" onclick="resetCharts()">Reset to automatic</button>
     </div>
-  </div>
-
-  <!-- ── Loading state ── -->
-  <div class="ds-loading" id="dsLoading" style="display:none">
-    <div class="spinner-border text-primary" role="status"></div>
-    <span>Loading dashboard…</span>
-  </div>
-
-  <!-- ── Empty state ── -->
-  <div class="ds-placeholder" id="dsPlaceholder">
-    <i class="bi bi-bar-chart-line" style="font-size:3rem;color:var(--text-3)"></i>
-    <p>Select a dataset above to generate your dashboard</p>
   </div>
 
   <!-- ── Dashboard ── -->
+  <div class="ds-loading" id="dsLoading" style="display:none">
+    <div class="spinner-border text-primary" role="status"></div>
+    <span id="dsLoadingText">Calculating…</span>
+  </div>
+  <div class="ds-placeholder" id="dsPlaceholder">
+    <i class="bi bi-bar-chart" style="font-size:2.5rem;color:var(--text-3)"></i>
+    <p>Select a file to build its dashboard.</p>
+  </div>
   <div id="dsDashboard" style="display:none">
+    <div id="dsNotices"></div>
     <div class="ds-kpi-row" id="kpiRow"></div>
     <div class="ds-charts-grid" id="chartsGrid"></div>
   </div>
 
   {% endif %}
 </div>
+
+<!-- ── Rows behind a number ── -->
+<div class="ds-modal" id="rowsModal" style="display:none" onclick="if(event.target===this)closeRows()">
+  <div class="ds-modal-box">
+    <div class="ds-modal-head">
+      <div>
+        <div class="ds-modal-title" id="rowsTitle">Rows</div>
+        <div class="ds-modal-sub" id="rowsSub"></div>
+      </div>
+      <button class="chip-remove" style="font-size:1.4rem" onclick="closeRows()">&times;</button>
+    </div>
+    <div class="ds-modal-body" id="rowsBody"></div>
+    <div class="ds-modal-foot">
+      <button class="btn-reset" id="rowsPrev" onclick="pageRows(-1)">Previous</button>
+      <span id="rowsPage" class="ds-modal-sub"></span>
+      <button class="btn-reset" id="rowsNext" onclick="pageRows(1)">Next</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-/* ── State ─────────────────────────────────────────────── */
-let currentDoc     = '';
-let currentQuarter = '';
-let columnInfo     = {};   // { col: { type, values[] } }
-let activeFilters  = [];   // [ { col, val } ]
-let chartInstances = {};
-let configOpen     = false;
-
-const CHART_TYPE_LABELS = {
-  bar:      'Bar (horizontal)',
-  bar_v:    'Bar (vertical)',
-  doughnut: 'Doughnut',
-  line:     'Line',
+const IS_ADMIN = {{ 'true' if is_admin else 'false' }};
+const CHART_TYPES = { bar: 'Bar (horizontal)', bar_v: 'Bar (vertical)', doughnut: 'Doughnut', line: 'Line' };
+const AGGS = {
+  count_rows: 'Count of rows', count: 'Count (filled cells)', distinct: 'Distinct count',
+  sum: 'Sum', avg: 'Average', min: 'Minimum', max: 'Maximum',
 };
+const TYPE_LABEL = { number: 'Number', date: 'Date', text: 'Text' };
+const CALC_LABEL = { sum: 'Sum', avg: 'Average', count: 'Count', none: "Don't summarise" };
 
-/* ── Quarter ───────────────────────────────────────────── */
-function setQuarter(btn) {
-  document.querySelectorAll('.ds-qtr-pill').forEach(p => p.classList.remove('active'));
-  btn.classList.add('active');
-  currentQuarter = btn.dataset.q;
-  if (currentDoc) applyDashboard();
+/* ── State ─────────────────────────────────────────────── */
+let meta = null;            // dataset metadata (columns, report)
+let filters = [];           // engine filters [{col, op, values|from|to|value, grain?, label}]
+let charts = null;          // null = automatic; else [{x, grain, agg, y, type, top}]
+let lastCharts = [];        // what the server actually drew (normalised)
+let chartInstances = {};
+let openPanel = null;
+let rowsState = null;
+
+/* ── Helpers ───────────────────────────────────────────── */
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
-
-/* ── Dataset change ────────────────────────────────────── */
-async function onDatasetChange() {
-  currentDoc = document.getElementById('docSelect').value;
-  if (!currentDoc) {
-    document.getElementById('configPanel').style.display = 'none';
-    document.getElementById('controlsActions').style.display = 'none';
-    document.getElementById('dsDashboard').style.display = 'none';
-    document.getElementById('dsPlaceholder').style.display = 'flex';
-    return;
-  }
-
-  // Show loading while fetching columns
-  showLoading();
-  document.getElementById('controlsActions').style.display = 'flex';
-
-  try {
-    const resp = await fetch('/data-studio/columns', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ document_name: currentDoc }),
-    });
-    columnInfo = await resp.json();
-    buildConfigPanel(null);
-  } catch (e) {
-    columnInfo = {};
-  }
-
-  // Auto-load dashboard
-  applyDashboard();
-}
-
-/* ── Config panel toggle ───────────────────────────────── */
-function toggleConfig() {
-  configOpen = !configOpen;
-  const panel = document.getElementById('configPanel');
-  const btn   = document.getElementById('configToggleBtn');
-  panel.style.display = configOpen ? 'block' : 'none';
-  btn.classList.toggle('active', configOpen);
-}
-
-/* ── Build the configure panel ─────────────────────────── */
-function buildConfigPanel(prefillConfigs) {
-  const allCols  = Object.keys(columnInfo);
-  // "clean" categorical — good default group-by dimensions
-  const catCols  = allCols.filter(c => columnInfo[c].type === 'categorical');
-  const timeCols = allCols.filter(c => columnInfo[c].type === 'month' || columnInfo[c].type === 'date');
-  const numCols  = allCols.filter(c => columnInfo[c].type === 'numeric');
-  // high-cardinality available for manual pick but not in defaults
-  const hiCols   = allCols.filter(c => columnInfo[c].type === 'high_cardinality');
-
-  // X-axis dropdown: clean cats + time cols, then high-cardinality with label
-  const xAxisCols = [...catCols, ...timeCols];
-
-  // Reset active filters when dataset changes
-  if (!prefillConfigs) {
-    activeFilters = [];
-    renderFilterChips();
-  }
-
-  // Filter column dropdown — only clean categoricals (high-cardinality has too many unique values)
-  const filterColSel = document.getElementById('filterColSelect');
-  filterColSel.innerHTML = '<option value="">— Column —</option>' +
-    catCols.map(c => `<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
-  document.getElementById('filterValSelect').innerHTML = '<option value="">— Value —</option>';
-
-  // Default slot assignments (smart: use clean cols only)
-  const defaults = prefillConfigs || [
-    { cat: catCols[0]||'', num: numCols[0]||'', type: 'bar',      enabled: !!(catCols[0] && numCols[0]) },
-    { cat: catCols[1]||catCols[0]||'', num: numCols[0]||'', type: 'doughnut', enabled: catCols.length >= 2 },
-    { cat: catCols[0]||'', num: numCols[1]||numCols[0]||'', type: 'bar',      enabled: numCols.length >= 2 },
-    { cat: catCols[0]||'', num: numCols[0]||'', type: 'doughnut', enabled: catCols.length >= 2 && numCols.length >= 2 },
-    { cat: catCols[2]||catCols[1]||catCols[0]||'', num: numCols[0]||'', type: 'bar_v', enabled: catCols.length >= 3 },
-    { cat: timeCols[0]||catCols[0]||'', num: numCols[0]||'', type: 'line', enabled: timeCols.length > 0 },
-  ];
-
-  // X-axis options: clean + time first, then high-cardinality with warning label
-  const buildXOptions = (selected) => {
-    let opts = '<option value="">— X-axis —</option>';
-    opts += xAxisCols.map(c =>
-      `<option value="${escHtml(c)}" ${c===selected?'selected':''}>${escHtml(c)}</option>`
-    ).join('');
-    if (hiCols.length) {
-      opts += `<optgroup label="Many unique values (use with care)">`;
-      opts += hiCols.map(c =>
-        `<option value="${escHtml(c)}" ${c===selected?'selected':''}>${escHtml(c)}</option>`
-      ).join('');
-      opts += '</optgroup>';
-    }
-    return opts;
-  };
-
-  const buildYOptions = (selected) =>
-    '<option value="">— Y-axis —</option>' +
-    numCols.map(c =>
-      `<option value="${escHtml(c)}" ${c===selected?'selected':''}>${escHtml(c)}</option>`
-    ).join('');
-
-  const buildTypeOptions = (selected) =>
-    Object.entries(CHART_TYPE_LABELS).map(([v, l]) =>
-      `<option value="${v}" ${v===selected?'selected':''}>${l}</option>`
-    ).join('');
-
-  const slotsDiv = document.getElementById('chartSlots');
-  slotsDiv.innerHTML = '';
-
-  defaults.forEach((slot, i) => {
-    const enabled = slot.enabled !== false;
-    const row = document.createElement('div');
-    row.className = 'chart-slot-row' + (enabled ? '' : ' slot-disabled');
-    row.id = `slot${i}`;
-    row.innerHTML = `
-      <label class="slot-toggle-wrap">
-        <input type="checkbox" id="slot${i}Enabled" ${enabled?'checked':''} onchange="updateSlotState(${i})">
-        <span class="slot-num">Chart ${i+1}</span>
-      </label>
-      <select id="slot${i}Cat" class="slot-select" ${!enabled?'disabled':''}>
-        ${buildXOptions(slot.cat_col || slot.cat || '')}
-      </select>
-      <select id="slot${i}Num" class="slot-select" ${!enabled?'disabled':''}>
-        ${buildYOptions(slot.num_col || slot.num || '')}
-      </select>
-      <select id="slot${i}Type" class="slot-select slot-type-sel" ${!enabled?'disabled':''}>
-        ${buildTypeOptions(slot.chart_type || slot.type || 'bar')}
-      </select>
-    `;
-    slotsDiv.appendChild(row);
+async function post(url, body) {
+  const resp = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
+  const type = resp.headers.get('content-type') || '';
+  if (resp.redirected || !type.includes('application/json')) {
+    throw new Error(resp.status === 504 ? 'The server took too long. Please try again.'
+      : url.endsWith('/settings') ? 'Changing column settings needs the admin login (Smart Search Admin).'
+      : 'Your session has expired. Please reload the page and sign in again.');
+  }
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+function colByPos(p) { return meta.columns.find(c => c.pos === Number(p)); }
+function showLoading(text) {
+  document.getElementById('dsLoadingText').textContent = text || 'Calculating…';
+  document.getElementById('dsLoading').style.display = 'flex';
+  document.getElementById('dsPlaceholder').style.display = 'none';
+}
+function hideLoading() { document.getElementById('dsLoading').style.display = 'none'; }
+function showPlaceholder(msg, isError) {
+  hideLoading();
+  document.getElementById('dsDashboard').style.display = 'none';
+  const el = document.getElementById('dsPlaceholder');
+  el.style.display = 'flex';
+  el.innerHTML = `<i class="bi ${isError ? 'bi-exclamation-triangle' : 'bi-bar-chart'}" style="font-size:2.5rem;color:${isError ? '#ef4444' : 'var(--text-3)'}"></i><p>${escHtml(msg)}</p>`;
+}
+function togglePanel(name) {
+  ['report', 'columns', 'filters', 'charts'].forEach(p => {
+    const show = p === name && openPanel !== name;
+    document.getElementById('panel-' + p).style.display = show ? 'block' : 'none';
+    document.getElementById('btn' + p[0].toUpperCase() + p.slice(1)).classList.toggle('active', show);
+  });
+  openPanel = openPanel === name ? null : name;
 }
 
-/* ── Ask AI ─────────────────────────────────────────────── */
-async function suggestWithAI() {
-  if (!currentDoc) return;
-  const btn = document.getElementById('askAiBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Thinking…';
-
+/* ── Opening a dataset ─────────────────────────────────── */
+async function onDatasetChange() {
+  const sel = document.getElementById('dsSelect');
+  const opt = sel.options[sel.selectedIndex];
+  filters = []; charts = null; meta = null;
+  document.getElementById('controlsActions').style.display = 'none';
+  if (!sel.value && !opt.dataset.doc) { showPlaceholder('Select a file to build its dashboard.'); return; }
+  const legacy = opt.dataset.legacy === '1';
+  showLoading(legacy ? 'Converting this older upload to the exact engine (one time only)…' : 'Opening…');
   try {
-    const resp = await fetch('/data-studio/suggest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ document_name: currentDoc }),
-    });
-    const data = await resp.json();
-    const configs = data.chart_configs || [];
-    const active  = configs.filter(c => c.enabled && c.cat_col && c.num_col);
-
-    if (data.error || active.length === 0) {
-      alert('AI could not find meaningful chart combinations in this dataset.\n\n'
-          + 'This usually means the columns are mostly IDs, URLs, or free text '
-          + 'rather than categories with numbers to measure. Try configuring manually.');
-      return;
+    meta = await post('/data-studio/open', legacy ? { document_id: Number(opt.dataset.doc) }
+                                                  : { dataset_id: Number(sel.value) });
+    if (legacy) {        // from now on it is a normal dataset
+      opt.value = meta.id; opt.dataset.legacy = '0';
+      opt.textContent = `${meta.document_name} (${meta.rows.toLocaleString()} rows)`;
     }
-
-    // Populate slots with AI suggestions
-    buildConfigPanel(configs);
-    // Open the configure panel so user can see what AI picked
-    if (!configOpen) toggleConfig();
-    // Apply immediately
-    applyDashboard();
-
-    // Tell the user what changed -- otherwise a successful call looks identical
-    // to no call at all.
-    const summary = active
-      .map(c => `${c.num_col} by ${c.cat_col}`)
-      .join(' · ');
-    showAiToast(`AI built ${active.length} chart${active.length > 1 ? 's' : ''}: ${summary}`);
-  } catch (e) {
-    alert('Failed to reach AI suggestion endpoint.');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-stars me-1"></i> Ask AI';
-  }
+  } catch (e) { showPlaceholder(e.message, true); return; }
+  document.getElementById('controlsActions').style.display = 'flex';
+  renderReport(); renderColumns(); renderFilterPanel(); renderChartRows([]);
+  await loadDashboard();
 }
 
-function showAiToast(msg) {
-  let el = document.getElementById('aiToast');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'aiToast';
-    el.style.cssText =
-      'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);' +
-      'background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;' +
-      'padding:0.75rem 1.25rem;border-radius:10px;font-size:0.875rem;' +
-      'font-weight:500;box-shadow:0 8px 24px rgba(99,102,241,0.35);' +
-      'z-index:9999;max-width:90vw;text-align:center;opacity:0;' +
-      'transition:opacity 0.25s ease';
-    document.body.appendChild(el);
-  }
-  el.innerHTML = '<i class="bi bi-stars me-1"></i> ' + msg;
-  requestAnimationFrame(() => { el.style.opacity = '1'; });
-  clearTimeout(el._timer);
-  el._timer = setTimeout(() => { el.style.opacity = '0'; }, 5000);
+/* ── Import check ──────────────────────────────────────── */
+function renderReport() {
+  const r = meta.report || {}, rows = r.rows || {};
+  const badge = document.getElementById('reportBadge');
+  badge.textContent = meta.warning_count || '';
+  badge.style.display = meta.warning_count ? 'inline-block' : 'none';
+  const line = (label, n, note) => `<tr><td>${escHtml(label)}</td><td class="num">${(n ?? 0).toLocaleString()}</td><td class="note">${escHtml(note || '')}</td></tr>`;
+  const ok = r.reconciles !== false;
+  const warns = (r.warnings || []).map(w => `
+    <li class="ds-w-${escHtml(w.level)}"><i class="bi ${w.level === 'warn' ? 'bi-exclamation-triangle-fill' : 'bi-info-circle'}"></i> ${escHtml(w.msg)}</li>`).join('');
+  const fileNotes = (r.file_notes || []).map(n => `<li class="ds-w-info"><i class="bi bi-info-circle"></i> ${escHtml(n)}</li>`).join('');
+  document.getElementById('panel-report').innerHTML = `
+    <div class="config-section-title"><i class="bi bi-clipboard-check"></i> Import check
+      <span class="config-hint">${r.sheet ? 'Sheet "' + escHtml(r.sheet) + '" · ' : ''}header on row ${escHtml(meta.header_row || 'none')}</span></div>
+    <div class="ds-report-grid">
+      <table class="ds-table ds-report-table">
+        ${line('Last row in the file', rows.last_row_in_file)}
+        ${line('Blank rows skipped', rows.blank_skipped)}
+        ${line('Rows above the header (titles, notes)', rows.above_header, rows.above_header ? 'skipped' : '')}
+        ${line('Header row', rows.header)}
+        ${line('Total rows', rows.total_rows, rows.total_rows ? (rows.totals_included ? 'included (your choice)' : 'left out so nothing is counted twice') : '')}
+        <tr class="ds-total-line"><td>Rows loaded into Data Studio</td><td class="num">${(rows.loaded ?? meta.rows).toLocaleString()}</td>
+            <td class="note">${ok ? '<span class="ds-ok"><i class="bi bi-check-circle-fill"></i> every row accounted for</span>' : '<span class="ds-bad">rows do not reconcile</span>'}</td></tr>
+        ${rows.duplicates ? line('…of which exact duplicate rows', rows.duplicates, 'kept and counted') : ''}
+      </table>
+      <ul class="ds-warn-list">${warns || '<li class="ds-w-info"><i class="bi bi-check-circle"></i> Nothing to check.</li>'}${fileNotes}</ul>
+    </div>`;
 }
 
-function updateSlotState(i) {
-  const enabled = document.getElementById(`slot${i}Enabled`).checked;
-  document.getElementById(`slot${i}Cat`).disabled  = !enabled;
-  document.getElementById(`slot${i}Num`).disabled  = !enabled;
-  document.getElementById(`slot${i}Type`).disabled = !enabled;
-  document.getElementById(`slot${i}`).classList.toggle('slot-disabled', !enabled);
+/* ── Columns (types and default calculations) ──────────── */
+function statLine(c) {
+  const s = c.stats || {};
+  const bits = [`${(s.filled ?? 0).toLocaleString()} filled`];
+  if (s.blank) bits.push(`${s.blank.toLocaleString()} blank`);
+  if (s.placeholders) bits.push(`${s.placeholders.toLocaleString()} like "N/A" (blank)`);
+  if (s.unreadable) bits.push(`<span class="ds-bad">${s.unreadable.toLocaleString()} unreadable</span>`);
+  if (c.type === 'number' && c.default_agg === 'sum' && s.sum != null) bits.push(`sum ${Number(s.sum).toLocaleString()}`);
+  if (c.type === 'number' && c.default_agg === 'avg' && s.mean != null) bits.push(`average ${Number(s.mean).toLocaleString()}`);
+  if (c.type !== 'text' && s.min != null) bits.push(`${escHtml(s.min)} → ${escHtml(s.max)}`);
+  if (c.type === 'text' && s.distinct != null) bits.push(`${s.distinct.toLocaleString()} distinct`);
+  if (s.date_order) bits.push(`read as ${s.date_order === 'DMY' ? 'day/month' : 'month/day'} (${escHtml(s.date_order_source)})`);
+  return bits.join(' · ');
+}
+function renderColumns() {
+  const opts = meta.options || {};
+  const colOpts = opts.columns || {};
+  const dis = IS_ADMIN ? '' : 'disabled';
+  const rows = meta.columns.map(c => {
+    const o = colOpts[String(c.pos)] || {};
+    const typeSel = ['auto', 'number', 'date', 'text'].map(t =>
+      `<option value="${t}" ${(o.type || 'auto') === t ? 'selected' : ''}>${t === 'auto' ? 'Auto (' + TYPE_LABEL[c.detected_type] + ')' : TYPE_LABEL[t]}</option>`).join('');
+    const aggSel = ['auto', 'sum', 'avg', 'count', 'none'].map(a =>
+      `<option value="${a}" ${(o.agg || 'auto') === a ? 'selected' : ''}>${a === 'auto' ? 'Auto (' + CALC_LABEL[c.default_agg] + ')' : CALC_LABEL[a]}</option>`).join('');
+    const dateSel = c.type === 'date' || c.detected_type === 'date' ? `
+      <select class="slot-select" data-pos="${c.pos}" data-k="date_order" ${dis}>
+        ${['auto', 'DMY', 'MDY'].map(d => `<option value="${d}" ${(o.date_order || 'auto') === d ? 'selected' : ''}>${d === 'auto' ? 'Auto' : d === 'DMY' ? 'Day/Month' : 'Month/Day'}</option>`).join('')}
+      </select>` : '';
+    const warn = (c.warnings || []).map(w => `<div class="ds-col-warn"><i class="bi bi-exclamation-triangle-fill"></i> ${escHtml(w)}</div>`).join('');
+    return `<tr>
+      <td><strong>${escHtml(c.name)}</strong>${c.overridden ? ' <span class="ds-tag">changed</span>' : ''}<div class="ds-col-stats">${statLine(c)}</div>${warn}</td>
+      <td><select class="slot-select" data-pos="${c.pos}" data-k="type" ${dis}>${typeSel}</select></td>
+      <td><select class="slot-select" data-pos="${c.pos}" data-k="agg" ${dis}>${aggSel}</select></td>
+      <td>${dateSel}</td></tr>`;
+  }).join('');
+  document.getElementById('panel-columns').innerHTML = `
+    <div class="config-section-title"><i class="bi bi-layout-three-columns"></i> Columns
+      <span class="config-hint">The app's guesses are shown as "Auto". Fix any that are wrong; every chart updates.</span></div>
+    ${IS_ADMIN ? '' : '<div class="ds-alert ds-alert-info"><i class="bi bi-lock"></i> Sign in to Smart Search Admin to change these settings.</div>'}
+    <div class="ds-table-wrap"><table class="ds-table ds-col-table">
+      <thead><tr><th>Column</th><th>Type</th><th>Default calculation</th><th>Date order</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <div class="ds-sheet-opts">
+      <label>Header row <input type="number" min="0" id="optHeader" class="ds-num-input" value="${escHtml(meta.header_row)}" ${dis}></label>
+      <label><input type="checkbox" id="optTotals" ${opts.include_totals ? 'checked' : ''} ${dis}> Include rows that look like totals</label>
+    </div>
+    <div class="config-footer">
+      <button class="btn-apply-lg" onclick="applyColumns()" ${dis}><i class="bi bi-check2"></i> Apply and recalculate</button>
+      <span class="config-hint">Re-reads the stored file text with these settings; no re-upload needed.</span>
+    </div>`;
+}
+async function applyColumns() {
+  const changes = { columns: {} };
+  document.querySelectorAll('#panel-columns select[data-pos]').forEach(s => {
+    const p = s.dataset.pos;
+    changes.columns[p] = changes.columns[p] || {};
+    changes.columns[p][s.dataset.k] = s.value;
+  });
+  const hr = parseInt(document.getElementById('optHeader').value, 10);
+  if (!Number.isNaN(hr) && hr !== meta.header_row) changes.header_row = hr;
+  changes.include_totals = document.getElementById('optTotals').checked;
+  showLoading('Re-reading the file with your settings…');
+  try {
+    meta = await post('/data-studio/settings', { dataset_id: meta.id, changes });
+  } catch (e) { hideLoading(); alert(e.message); return; }
+  if (changes.header_row !== undefined) { filters = []; charts = null; }
+  renderReport(); renderColumns(); renderFilterPanel(); renderChartRows(lastCharts);
+  await loadDashboard();
 }
 
 /* ── Filters ───────────────────────────────────────────── */
-function onFilterColChange() {
-  const col    = document.getElementById('filterColSelect').value;
-  const valSel = document.getElementById('filterValSelect');
-  if (!col || !columnInfo[col]) {
-    valSel.innerHTML = '<option value="">— Value —</option>';
+function renderFilterPanel() {
+  const sel = document.getElementById('filterCol');
+  sel.innerHTML = '<option value="">+ Add a filter on…</option>' + meta.columns
+    .filter(c => (c.stats || {}).filled)
+    .map(c => `<option value="${c.pos}">${escHtml(c.name)} (${TYPE_LABEL[c.type]})</option>`).join('');
+  document.getElementById('filterEditor').innerHTML = '';
+  renderFilterChips();
+}
+async function onFilterColChange() {
+  const pos = document.getElementById('filterCol').value;
+  const ed = document.getElementById('filterEditor');
+  if (pos === '') { ed.innerHTML = ''; return; }
+  const c = colByPos(pos);
+  if (c.type === 'number') {
+    ed.innerHTML = `<input class="ds-num-input" id="fFrom" placeholder="min ${escHtml(c.stats.min ?? '')}">
+      <span class="chip-sep">to</span><input class="ds-num-input" id="fTo" placeholder="max ${escHtml(c.stats.max ?? '')}">
+      <button class="btn-add-filter" onclick="addRangeFilter(${c.pos})">Add</button>`;
     return;
   }
-  const vals = columnInfo[col].values || [];
-  valSel.innerHTML = '<option value="">— Value —</option>' +
-    vals.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('');
-}
-
-function addFilter() {
-  const col = document.getElementById('filterColSelect').value;
-  const val = document.getElementById('filterValSelect').value;
-  if (!col || !val) return;
-  activeFilters = activeFilters.filter(f => f.col !== col);
-  activeFilters.push({ col, val });
-  renderFilterChips();
-}
-
-function removeFilter(col) {
-  activeFilters = activeFilters.filter(f => f.col !== col);
-  renderFilterChips();
-}
-
-function clearFilters() {
-  activeFilters = [];
-  renderFilterChips();
-}
-
-function renderFilterChips() {
-  const div     = document.getElementById('filterChips');
-  const clearBtn = document.getElementById('clearFiltersBtn');
-  if (activeFilters.length === 0) {
-    div.innerHTML = '';
-    clearBtn.style.display = 'none';
+  if (c.type === 'date') {
+    ed.innerHTML = `<input type="date" class="ds-num-input" id="fFrom" value="${escHtml((c.stats.min || '').slice(0, 10))}">
+      <span class="chip-sep">to</span><input type="date" class="ds-num-input" id="fTo" value="${escHtml((c.stats.max || '').slice(0, 10))}">
+      <button class="btn-add-filter" onclick="addRangeFilter(${c.pos})">Add</button>`;
     return;
   }
-  clearBtn.style.display = 'inline-flex';
-  div.innerHTML = activeFilters.map(f => `
-    <span class="filter-chip">
-      <span class="chip-col">${escHtml(f.col)}</span>
-      <span class="chip-sep">:</span>
-      <strong>${escHtml(f.val)}</strong>
-      <button class="chip-remove" onclick="removeFilter('${escHtml(f.col).replace(/'/g, "\\'")}')">×</button>
-    </span>
-  `).join('');
-}
-
-/* ── Apply dashboard ───────────────────────────────────── */
-function applyDashboard() {
-  if (!currentDoc) return;
-
-  // Collect chart configs from slots (if panel was built)
-  let chart_configs = null;
-  const slot0 = document.getElementById('slot0Enabled');
-  if (slot0) {
-    chart_configs = [];
-    for (let i = 0; i < 6; i++) {
-      const enabledEl = document.getElementById(`slot${i}Enabled`);
-      if (!enabledEl) { chart_configs.push({ enabled: false }); continue; }
-      chart_configs.push({
-        enabled:    enabledEl.checked,
-        cat_col:    document.getElementById(`slot${i}Cat`)?.value  || '',
-        num_col:    document.getElementById(`slot${i}Num`)?.value  || '',
-        chart_type: document.getElementById(`slot${i}Type`)?.value || 'bar',
-      });
-    }
-    // If all disabled or no config set, fall back to auto
-    if (!chart_configs.some(c => c.enabled && c.cat_col && c.num_col)) {
-      chart_configs = null;
-    }
-  }
-
-  // Collect filters
-  const filters = {};
-  activeFilters.forEach(f => { filters[f.col] = f.val; });
-
-  showLoading();
-
-  fetch('/data-studio/load', {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      document_name: currentDoc,
-      quarter:       currentQuarter || null,
-      filters:       Object.keys(filters).length ? filters : null,
-      chart_configs: chart_configs,
-    }),
-  })
-  .then(r => r.json())
-  .then(data => {
-    hideLoading();
-    if (data.error) {
-      showPlaceholder(data.error);
-      return;
-    }
-    renderDashboard(data);
-  })
-  .catch(() => { hideLoading(); showPlaceholder('Failed to load dashboard.'); });
-}
-
-function resetToAuto() {
-  buildConfigPanel(null);
-  applyDashboard();
-}
-
-/* ── Dashboard rendering ───────────────────────────────── */
-function renderDashboard(data) {
-  // Quarter filter visibility
-  document.getElementById('quarterWrap').style.display = data.has_quarters ? 'flex' : 'none';
-
-  // KPI cards
-  const kpiRow = document.getElementById('kpiRow');
-  kpiRow.innerHTML = data.kpis.map(k => `
-    <div class="ds-kpi-card">
-      <div class="ds-kpi-value">${escHtml(String(k.value))}</div>
-      <div class="ds-kpi-label">${escHtml(k.label)}</div>
-    </div>
-  `).join('');
-
-  // Active filter badge
-  if (activeFilters.length > 0) {
-    kpiRow.innerHTML += `
-      <div class="ds-filter-badge">
-        <i class="bi bi-funnel-fill me-1"></i>
-        Filtered by: ${activeFilters.map(f => `<strong>${escHtml(f.col)}</strong> = ${escHtml(f.val)}`).join(', ')}
-        &nbsp;·&nbsp; ${escHtml(String(data.total_rows))} rows
+  ed.innerHTML = '<span class="config-hint">Loading values…</span>';
+  try {
+    const v = await post('/data-studio/values', { dataset_id: meta.id, col: Number(pos), filters });
+    ed.innerHTML = `
+      <input class="ds-num-input ds-search" id="fSearch" placeholder="Search values" oninput="searchValues()">
+      <div class="ds-value-list" id="fValues">${v.values.map((x, i) => `
+        <label class="ds-value" data-text="${escHtml((x.label || '').toLowerCase())}">
+          <input type="checkbox" data-i="${i}"> ${escHtml(x.label)} <span class="ds-count">${x.rows.toLocaleString()}</span></label>`).join('')}
+        ${v.more ? `<div class="config-hint">+${v.more.toLocaleString()} more values. Use "contains" below.</div>` : ''}
       </div>
-    `;
-  }
+      <div class="ds-value-actions">
+        <button class="btn-add-filter" onclick="addValueFilter(${c.pos}, 'in')">Keep selected</button>
+        <button class="btn-clear-all" onclick="addValueFilter(${c.pos}, 'not_in')">Exclude selected</button>
+        <input class="ds-num-input" id="fContains" placeholder="or: contains text">
+        <button class="btn-clear-all" onclick="addContainsFilter(${c.pos})">Add</button>
+      </div>`;
+    ed._values = v.values;
+  } catch (e) { ed.innerHTML = `<span class="ds-bad">${escHtml(e.message)}</span>`; }
+}
+function searchValues() {
+  const q = document.getElementById('fSearch').value.toLowerCase();
+  document.querySelectorAll('#fValues .ds-value').forEach(el => {
+    el.style.display = el.dataset.text.includes(q) ? '' : 'none';
+  });
+}
+function addValueFilter(pos, op) {
+  const ed = document.getElementById('filterEditor');
+  const picked = [...document.querySelectorAll('#fValues input:checked')].map(i => ed._values[Number(i.dataset.i)].value);
+  if (!picked.length) { alert('Tick at least one value.'); return; }
+  addFilter({ col: pos, op, values: picked });
+}
+function addContainsFilter(pos) {
+  const t = document.getElementById('fContains').value.trim();
+  if (t) addFilter({ col: pos, op: 'contains', value: t });
+}
+function addRangeFilter(pos) {
+  const from = document.getElementById('fFrom').value.trim(), to = document.getElementById('fTo').value.trim();
+  if (!from && !to) { alert('Enter a start, an end, or both.'); return; }
+  addFilter({ col: pos, op: 'between', from: from || null, to: to || null });
+}
+async function addFilter(f) {
+  filters.push(f);
+  if (!(await loadDashboard())) { filters.pop(); renderFilterChips(); return; }
+  document.getElementById('filterCol').value = '';
+  document.getElementById('filterEditor').innerHTML = '';
+}
+function removeFilter(i) { filters.splice(i, 1); loadDashboard(); }
+function clearFilters() { filters = []; loadDashboard(); }
+function renderFilterChips() {
+  const badge = document.getElementById('filterBadge');
+  badge.textContent = filters.length || '';
+  badge.style.display = filters.length ? 'inline-block' : 'none';
+  document.getElementById('filterChips').innerHTML = filters.map((f, i) => `
+    <span class="filter-chip">${escHtml(f.label || colByPos(f.col).name)}
+      <button class="chip-remove" onclick="removeFilter(${i})" title="Remove">&times;</button></span>`).join('')
+    + (filters.length > 1 ? '<button class="btn-clear-all" onclick="clearFilters()">Clear all</button>' : '');
+}
 
-  // Destroy old charts
+/* ── Chart builder ─────────────────────────────────────── */
+function chartRowHtml(ch, i) {
+  const colOpts = (selected, pred) => meta.columns.filter(pred).map(c =>
+    `<option value="${c.pos}" ${Number(selected) === c.pos ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('');
+  return `<div class="chart-slot-row" data-i="${i}">
+    <select class="slot-select" data-k="x">${colOpts(ch.x, c => (c.stats || {}).filled)}</select>
+    <select class="slot-select" data-k="agg" onchange="onAggChange(this)">${Object.entries(AGGS).map(([k, v]) =>
+      `<option value="${k}" ${ch.agg === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+    <select class="slot-select" data-k="y" ${ch.agg === 'count_rows' ? 'disabled' : ''}>
+      <option value="">—</option>${colOpts(ch.y, c => ['sum', 'avg'].includes(ch.agg) ? c.type === 'number' : true)}</select>
+    <select class="slot-select" data-k="type">${Object.entries(CHART_TYPES).map(([k, v]) =>
+      `<option value="${k}" ${ch.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+    <button class="chip-remove" onclick="this.parentElement.remove()" title="Remove chart">&times;</button>
+  </div>`;
+}
+function renderChartRows(list) {
+  document.getElementById('chartRows').innerHTML = (list || []).map(chartRowHtml).join('');
+}
+function onAggChange(sel) {
+  const row = sel.parentElement;
+  const ch = readChartRow(row);
+  row.outerHTML = chartRowHtml(ch, row.dataset.i);
+}
+function readChartRow(row) {
+  const get = k => row.querySelector(`[data-k="${k}"]`).value;
+  return { x: Number(get('x')), agg: get('agg'), y: get('y') === '' ? null : Number(get('y')), type: get('type') };
+}
+function addChartRow() {
+  const first = meta.columns.find(c => c.type === 'text' && (c.stats || {}).filled) || meta.columns[0];
+  document.getElementById('chartRows').insertAdjacentHTML('beforeend',
+    chartRowHtml({ x: first.pos, agg: 'count_rows', y: null, type: 'bar' }, Date.now()));
+}
+function applyCharts() {
+  const rows = [...document.querySelectorAll('#chartRows .chart-slot-row')].map(readChartRow);
+  charts = rows.length ? rows : null;
+  loadDashboard();
+}
+function resetCharts() { charts = null; loadDashboard(); }
+async function suggestWithAI() {
+  const btn = document.getElementById('askAiBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Thinking…';
+  try {
+    const data = await post('/data-studio/suggest', { dataset_id: meta.id });
+    if (!data.charts.length) { alert('The AI had no usable suggestions for this file.'); return; }
+    charts = data.charts;
+    await loadDashboard();
+  } catch (e) { alert(e.message); }
+  finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-stars"></i> Suggest charts'; }
+}
+
+/* ── Dashboard ─────────────────────────────────────────── */
+async function loadDashboard() {
+  showLoading();
+  let data;
+  try {
+    data = await post('/data-studio/load', { dataset_id: meta.id, filters, charts });
+  } catch (e) {
+    // The server refused a filter or chart: say why; the caller undoes it.
+    hideLoading(); alert(e.message); return false;
+  }
+  hideLoading();
+  filters = data.filters;            // server-validated, with readable labels
+  renderFilterChips();
+  lastCharts = data.charts.map(c => c.spec);
+  if (charts === null || openPanel !== 'charts') renderChartRows(lastCharts);
+  renderDashboard(data);
+  return true;
+}
+
+function renderDashboard(data) {
+  document.getElementById('dsPlaceholder').style.display = 'none';
+  const notices = [];
+  if (data.filters.length) notices.push(`<div class="ds-filter-badge"><i class="bi bi-funnel-fill"></i> Showing ${data.matched_rows.toLocaleString()} of ${data.dataset.rows.toLocaleString()} rows: ${data.filters.map(f => escHtml(f.label)).join(' · ')}</div>`);
+  if (data.dataset.warning_count) notices.push(`<div class="ds-alert ds-alert-warn"><i class="bi bi-exclamation-triangle-fill"></i> The import check found ${data.dataset.warning_count} thing(s) worth a look. <a href="#" onclick="if(openPanel!=='report')togglePanel('report');return false">Open import check</a></div>`);
+  (data.errors || []).forEach(e => notices.push(`<div class="ds-alert ds-alert-warn"><i class="bi bi-exclamation-triangle-fill"></i> A chart was skipped: ${escHtml(e)}</div>`));
+  document.getElementById('dsNotices').innerHTML = notices.join('');
+
+  document.getElementById('kpiRow').innerHTML = data.kpis.map(k => `
+    <div class="ds-kpi-card" title="Exact: ${escHtml(k.exact)}">
+      <div class="ds-kpi-value">${escHtml(k.value)}</div>
+      <div class="ds-kpi-label">${escHtml(k.label)}</div>
+      <div class="ds-kpi-sub">${escHtml(k.sub || '')}</div>
+    </div>`).join('');
+
   Object.values(chartInstances).forEach(c => c.destroy());
   chartInstances = {};
-
-  // Build chart cards
   const grid = document.getElementById('chartsGrid');
   grid.innerHTML = '';
-
+  if (data.empty) {
+    grid.innerHTML = `<div class="ds-empty-result"><i class="bi bi-funnel"></i> ${escHtml(data.message)}</div>`;
+  }
   data.charts.forEach(cfg => {
     const card = document.createElement('div');
     card.className = 'ds-chart-card';
-    card.innerHTML = `
-      <div class="ds-chart-title">${escHtml(cfg.title)}</div>
-      <div class="ds-chart-body"><canvas id="${cfg.id}"></canvas></div>
-    `;
+    const chk = cfg.check ? `<div class="ds-check ${cfg.check.ok ? 'ok' : 'bad'}">
+        <i class="bi ${cfg.check.ok ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill'}"></i> ${escHtml(cfg.check.text)}</div>` : '';
+    card.innerHTML = `<div class="ds-chart-title" title="${escHtml(cfg.title)}">${escHtml(cfg.title)}</div>
+      <div class="ds-chart-body"><canvas id="${cfg.id}"></canvas></div>${chk}`;
     grid.appendChild(card);
 
-    const ctx          = document.getElementById(cfg.id).getContext('2d');
-    const isHorizontal = cfg.indexAxis === 'y';
-    const isDoughnut   = cfg.type === 'doughnut';
-
-    chartInstances[cfg.id] = new Chart(ctx, {
+    const isDoughnut = cfg.type === 'doughnut';
+    chartInstances[cfg.id] = new Chart(document.getElementById(cfg.id).getContext('2d'), {
       type: cfg.type,
       data: { labels: cfg.labels, datasets: cfg.datasets },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        indexAxis: cfg.indexAxis || 'x',
+        responsive: true, maintainAspectRatio: false, indexAxis: cfg.indexAxis || 'x',
+        onClick: (evt, els) => { if (els.length) openRows(cfg, els[0].index); },
+        onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
         plugins: {
-          legend: {
-            display: isDoughnut,
-            position: 'bottom',
-            labels: { font: { size: 11, family: 'Inter, sans-serif' }, padding: 12, boxWidth: 12 },
-          },
-          tooltip: {
-            callbacks: {
-              label: ctx => {
-                const val = ctx.parsed[isHorizontal ? 'x' : 'y'] ?? ctx.parsed;
-                return ` ${typeof val === 'number' ? val.toLocaleString() : val}`;
-              }
-            }
-          }
+          legend: { display: isDoughnut, position: 'bottom',
+                    labels: { font: { size: 11, family: 'Inter, sans-serif' }, padding: 10, boxWidth: 12 } },
+          tooltip: { callbacks: {
+            label: ctx => ` ${cfg.display[ctx.dataIndex]}`,
+            afterLabel: ctx => ` ${cfg.rows[ctx.dataIndex].toLocaleString()} row(s) · click to see them`,
+          } },
         },
-        scales: isDoughnut ? {} : {
-          x: { grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { font: { size: 11 }, color: '#6b7280' } },
-          y: { grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { font: { size: 11 }, color: '#6b7280' } },
-        },
-        animation: { duration: 400 },
-      }
+        scales: isDoughnut ? {} : (() => {
+          const counts = ['count_rows', 'count', 'distinct'].includes(cfg.spec.agg);
+          const valueAxis = cfg.indexAxis === 'y' ? 'x' : 'y';
+          const axis = k => ({ grid: { color: 'rgba(0,0,0,0.05)' },
+            ticks: { font: { size: 11 }, color: '#6b7280', ...(k === valueAxis && counts ? { precision: 0 } : {}) } });
+          return { x: axis('x'), y: axis('y') };
+        })(),
+        animation: { duration: 300 },
+      },
     });
   });
-
   document.getElementById('dsDashboard').style.display = 'block';
 }
 
-/* ── Helpers ───────────────────────────────────────────── */
-function showLoading() {
-  document.getElementById('dsPlaceholder').style.display = 'none';
-  document.getElementById('dsDashboard').style.display   = 'none';
-  document.getElementById('dsLoading').style.display     = 'flex';
+/* ── Rows behind a number ──────────────────────────────── */
+function openRows(cfg, i) {
+  rowsState = { filters: [...filters, cfg.drill[i]], offset: 0, limit: 100,
+                title: `${cfg.labels[i]} — ${cfg.display[i]}`, sub: cfg.title };
+  document.getElementById('rowsModal').style.display = 'flex';
+  fetchRows();
 }
-function hideLoading() {
-  document.getElementById('dsLoading').style.display = 'none';
+function closeRows() { document.getElementById('rowsModal').style.display = 'none'; rowsState = null; }
+function pageRows(d) {
+  rowsState.offset = Math.max(0, rowsState.offset + d * rowsState.limit);
+  fetchRows();
 }
-function showPlaceholder(msg) {
-  const el = document.getElementById('dsPlaceholder');
-  el.querySelector('p').textContent = msg;
-  el.style.display = 'flex';
+async function fetchRows() {
+  const s = rowsState;
+  document.getElementById('rowsTitle').textContent = s.title;
+  document.getElementById('rowsSub').textContent = s.sub;
+  document.getElementById('rowsBody').innerHTML = '<div class="config-hint" style="padding:1rem">Loading rows…</div>';
+  try {
+    const d = await post('/data-studio/rows', { dataset_id: meta.id, filters: s.filters, limit: s.limit, offset: s.offset });
+    const head = `<tr><th>Row in file</th>${d.columns.map(c => `<th>${escHtml(c)}</th>`).join('')}</tr>`;
+    const body = d.rows.map(r => `<tr><td class="num">${r.row}</td>${d.columns.map((_, j) =>
+      `<td>${escHtml(r.cells[j] ?? '')}</td>`).join('')}</tr>`).join('');
+    document.getElementById('rowsBody').innerHTML = `<table class="ds-table ds-rows-table"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+    const end = Math.min(s.offset + s.limit, d.matched);
+    document.getElementById('rowsPage').textContent = d.matched
+      ? `Rows ${(s.offset + 1).toLocaleString()}–${end.toLocaleString()} of ${d.matched.toLocaleString()}, exactly as in your file`
+      : 'No rows';
+    document.getElementById('rowsPrev').disabled = s.offset === 0;
+    document.getElementById('rowsNext').disabled = end >= d.matched;
+  } catch (e) {
+    document.getElementById('rowsBody').innerHTML = `<div class="ds-bad" style="padding:1rem">${escHtml(e.message)}</div>`;
+  }
 }
-function escHtml(s) {
-  return String(s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && rowsState) closeRows(); });
 </script>
 
 <style>
 /* ── Layout ─────────────────────────────────────────────── */
 .ds-wrap    { max-width: 1400px; margin: 0 auto; padding: 2rem 1rem; }
-
-.ds-header  {
-  display: flex; justify-content: space-between; align-items: flex-start;
-  margin-bottom: 1.5rem;
-}
+.ds-header  { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.5rem; }
 .ds-title   { font-size: 1.6rem; font-weight: 700; color: var(--text-1); margin: 0; }
 .ds-subtitle { font-size: 0.875rem; color: var(--text-2); margin: 4px 0 0; }
-
 .btn-manage-data {
-  display: inline-flex; align-items: center; gap: 4px;
+  display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
   padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
   background: var(--surface); border: 1.5px solid var(--border);
   color: var(--text-1); text-decoration: none; transition: all 0.15s;
@@ -592,203 +581,136 @@ function escHtml(s) {
 
 /* ── Top controls ────────────────────────────────────────── */
 .ds-controls {
-  display: flex; align-items: flex-end; gap: 1.5rem; flex-wrap: wrap;
+  display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 1rem 1.25rem; margin-bottom: 1rem;
 }
 .ds-label { font-size: 0.8rem; font-weight: 600; color: var(--text-2); display: block; margin-bottom: 6px; }
 .ds-select {
-  border: 1.5px solid var(--border); border-radius: 8px;
-  padding: 8px 12px; font-size: 0.875rem; font-family: inherit;
-  color: var(--text-1); background: var(--bg); min-width: 260px;
+  border: 1.5px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 0.875rem;
+  font-family: inherit; color: var(--text-1); background: var(--bg); min-width: 280px; max-width: 100%;
   cursor: pointer; outline: none;
 }
 .ds-select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
-
-.ds-quarter-wrap { display: flex; flex-direction: column; }
-.ds-quarter-pills { display: flex; gap: 6px; }
-.ds-qtr-pill {
-  padding: 6px 14px; border: 1.5px solid var(--border);
-  border-radius: 20px; background: var(--surface);
-  color: var(--text-2); font-size: 0.8rem; font-weight: 600;
-  cursor: pointer; transition: all 0.15s;
-}
-.ds-qtr-pill:hover  { border-color: var(--primary); color: var(--primary); }
-.ds-qtr-pill.active { background: var(--primary); border-color: var(--primary); color: #fff; }
-
-.ds-controls-actions { display: flex; align-items: flex-end; gap: 8px; margin-left: auto; }
-
+.ds-controls-actions { display: flex; align-items: flex-end; gap: 8px; margin-left: auto; flex-wrap: wrap; }
 .btn-ask-ai {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: inline-flex; align-items: center; gap: 4px; padding: 8px 16px; border-radius: 8px;
+  font-size: 0.85rem; font-weight: 600; background: linear-gradient(135deg, #6366f1, #8b5cf6);
   border: none; color: #fff; cursor: pointer; transition: opacity 0.15s;
 }
-.btn-ask-ai:hover   { opacity: 0.88; }
+.btn-ask-ai:hover { opacity: 0.88; }
 .btn-ask-ai:disabled { opacity: 0.6; cursor: not-allowed; }
-
 .btn-configure {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
-  background: var(--surface); border: 1.5px solid var(--border);
+  display: inline-flex; align-items: center; gap: 5px; padding: 8px 14px; border-radius: 8px;
+  font-size: 0.85rem; font-weight: 600; background: var(--surface); border: 1.5px solid var(--border);
   color: var(--text-1); cursor: pointer; transition: all 0.15s;
 }
-.btn-configure:hover, .btn-configure.active {
-  border-color: var(--primary); color: var(--primary);
-  background: rgba(99,102,241,0.06);
-}
+.btn-configure:hover, .btn-configure.active { border-color: var(--primary); color: var(--primary); background: rgba(99,102,241,0.06); }
+.ds-badge { display: none; min-width: 18px; padding: 0 5px; border-radius: 9px; background: #f59e0b; color: #fff; font-size: 0.7rem; line-height: 18px; text-align: center; }
+.ds-badge-blue { background: var(--primary); }
 
-.btn-apply {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
-  background: var(--primary); border: 1.5px solid var(--primary);
-  color: #fff; cursor: pointer; transition: all 0.15s;
-}
-.btn-apply:hover { opacity: 0.88; }
-
-/* ── Configure panel ─────────────────────────────────────── */
-.ds-config-panel {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1.25rem;
-}
-
-.config-section { margin-bottom: 1.25rem; }
-.config-section:last-of-type { margin-bottom: 0; }
-
-.config-section-title {
-  font-size: 0.8rem; font-weight: 700; color: var(--text-1);
-  text-transform: uppercase; letter-spacing: 0.06em;
-  margin-bottom: 0.75rem; display: flex; align-items: center; gap: 6px;
-}
+/* ── Panels ──────────────────────────────────────────────── */
+.ds-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1.25rem; }
+.config-section-title { font-size: 0.8rem; font-weight: 700; color: var(--text-1); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .config-hint { font-size: 0.75rem; font-weight: 400; color: var(--text-3); text-transform: none; letter-spacing: 0; }
+.config-footer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.btn-apply-lg { display: inline-flex; align-items: center; gap: 4px; padding: 9px 20px; border-radius: 8px; font-size: 0.875rem; font-weight: 600; background: var(--primary); border: none; color: #fff; cursor: pointer; }
+.btn-apply-lg:hover { opacity: 0.88; }
+.btn-apply-lg:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-reset { background: none; border: 1.5px solid var(--border); border-radius: 8px; padding: 8px 16px; font-size: 0.85rem; font-weight: 600; color: var(--text-2); cursor: pointer; }
+.btn-reset:hover { border-color: var(--text-2); color: var(--text-1); }
+.btn-reset:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.ds-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.ds-table th { text-align: left; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.ds-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); color: var(--text-1); vertical-align: top; }
+.ds-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ds-table td.note { color: var(--text-3); font-size: 0.78rem; }
+.ds-table-wrap { overflow-x: auto; }
+.ds-report-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.25rem; }
+@media (max-width: 900px) { .ds-report-grid { grid-template-columns: 1fr; } }
+.ds-total-line td { font-weight: 700; border-top: 2px solid var(--border); }
+.ds-warn-list { list-style: none; margin: 0; padding: 0; font-size: 0.82rem; display: flex; flex-direction: column; gap: 6px; }
+.ds-warn-list li { padding: 7px 10px; border-radius: 8px; line-height: 1.4; }
+.ds-w-warn { background: rgba(245,158,11,0.1); color: var(--text-1); }
+.ds-w-warn i { color: #d97706; }
+.ds-w-info { background: rgba(99,102,241,0.06); color: var(--text-2); }
+.ds-ok { color: #059669; font-weight: 600; }
+.ds-bad { color: #dc2626; font-weight: 600; }
+.ds-col-stats { font-size: 0.75rem; color: var(--text-3); margin-top: 2px; }
+.ds-col-warn { font-size: 0.75rem; color: #b45309; margin-top: 3px; }
+.ds-tag { font-size: 0.68rem; padding: 1px 6px; border-radius: 6px; background: rgba(99,102,241,0.12); color: var(--primary); font-weight: 600; }
+.ds-col-table select { min-width: 150px; }
+.ds-sheet-opts { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: center; margin-top: 1rem; font-size: 0.85rem; color: var(--text-2); }
+.ds-num-input { border: 1.5px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 0.85rem; font-family: inherit; background: var(--bg); color: var(--text-1); width: 140px; }
+.ds-sheet-opts .ds-num-input { width: 80px; margin-left: 6px; }
+.ds-alert { padding: 9px 12px; border-radius: 8px; font-size: 0.84rem; margin-bottom: 0.75rem; }
+.ds-alert-warn { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); color: var(--text-1); }
+.ds-alert-warn i { color: #d97706; }
+.ds-alert-info { background: rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.2); color: var(--text-2); }
 
 /* Filters */
-.filter-add-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-.filter-select {
-  border: 1.5px solid var(--border); border-radius: 8px;
-  padding: 7px 10px; font-size: 0.85rem; font-family: inherit;
-  color: var(--text-1); background: var(--bg); min-width: 180px;
-  cursor: pointer; outline: none;
-}
-.filter-select:focus { border-color: var(--primary); }
-
-.btn-add-filter {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 7px 14px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
-  background: var(--primary); border: none; color: #fff; cursor: pointer;
-}
-.btn-add-filter:hover { opacity: 0.88; }
-
-.btn-clear-all {
-  display: inline-flex; align-items: center;
-  padding: 7px 12px; border-radius: 8px; font-size: 0.8rem; font-weight: 600;
-  background: transparent; border: 1.5px solid var(--border);
-  color: var(--text-2); cursor: pointer; transition: all 0.15s;
-}
+.filter-add-row { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.filter-select { border: 1.5px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 0.85rem; font-family: inherit; color: var(--text-1); background: var(--bg); min-width: 220px; cursor: pointer; outline: none; }
+.filter-editor { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1; min-width: 260px; }
+.ds-value-list { width: 100%; max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 6px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 2px 10px; }
+.ds-value { font-size: 0.82rem; display: flex; align-items: center; gap: 6px; padding: 3px 4px; cursor: pointer; color: var(--text-1); }
+.ds-count { margin-left: auto; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ds-value-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; width: 100%; }
+.ds-search { width: 100%; }
+.btn-add-filter { display: inline-flex; align-items: center; gap: 4px; padding: 7px 14px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; background: var(--primary); border: none; color: #fff; cursor: pointer; }
+.btn-clear-all { display: inline-flex; align-items: center; padding: 7px 12px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; background: transparent; border: 1.5px solid var(--border); color: var(--text-2); cursor: pointer; }
 .btn-clear-all:hover { border-color: #ef4444; color: #ef4444; }
-
-.filter-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-.filter-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 4px 10px; border-radius: 20px;
-  background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.25);
-  font-size: 0.8rem; color: var(--text-1);
-}
-.chip-col  { color: var(--text-2); }
-.chip-sep  { color: var(--text-3); }
-.chip-remove {
-  background: none; border: none; cursor: pointer;
-  color: var(--text-2); font-size: 0.95rem; padding: 0 2px; line-height: 1;
-}
+.filter-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
+.filter-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.25); font-size: 0.8rem; color: var(--text-1); }
+.chip-sep { color: var(--text-3); font-size: 0.8rem; }
+.chip-remove { background: none; border: none; cursor: pointer; color: var(--text-2); font-size: 1.05rem; padding: 0 4px; line-height: 1; }
 .chip-remove:hover { color: #ef4444; }
 
-/* Chart slots */
-.chart-slots-header {
-  display: grid; grid-template-columns: 120px 1fr 1fr 140px;
-  gap: 8px; padding: 0 0 4px;
-  font-size: 0.72rem; font-weight: 600; color: var(--text-3);
-  text-transform: uppercase; letter-spacing: 0.05em;
+/* Chart builder */
+.chart-slots-header, .chart-slot-row { display: grid; grid-template-columns: 1.2fr 1fr 1.2fr 1fr 32px; gap: 8px; align-items: center; }
+.chart-slots-header { font-size: 0.72rem; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; padding-bottom: 4px; }
+.chart-slot-row { padding: 6px 0; border-top: 1px solid var(--border); }
+.slot-select { border: 1.5px solid var(--border); border-radius: 7px; padding: 6px 8px; font-size: 0.82rem; font-family: inherit; color: var(--text-1); background: var(--bg); cursor: pointer; outline: none; width: 100%; }
+.slot-select:disabled { opacity: 0.45; cursor: not-allowed; }
+@media (max-width: 700px) {
+  .chart-slots-header { display: none; }
+  .chart-slot-row { grid-template-columns: 1fr 1fr; }
 }
-.slot-col-label { padding-left: 4px; }
-
-.chart-slot-row {
-  display: grid; grid-template-columns: 120px 1fr 1fr 140px;
-  gap: 8px; align-items: center;
-  padding: 6px 0; border-top: 1px solid var(--border);
-}
-.chart-slot-row:first-child { border-top: none; }
-
-.slot-toggle-wrap { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.slot-toggle-wrap input[type=checkbox] { width: 14px; height: 14px; accent-color: var(--primary); cursor: pointer; }
-.slot-num { font-size: 0.8rem; font-weight: 600; color: var(--text-1); }
-
-.slot-select {
-  border: 1.5px solid var(--border); border-radius: 7px;
-  padding: 6px 8px; font-size: 0.82rem; font-family: inherit;
-  color: var(--text-1); background: var(--bg);
-  cursor: pointer; outline: none; width: 100%;
-}
-.slot-select:focus { border-color: var(--primary); }
-.slot-select:disabled { opacity: 0.4; cursor: not-allowed; }
-.slot-disabled .slot-num { opacity: 0.4; }
-
-.config-footer {
-  display: flex; align-items: center; gap: 10px;
-  margin-top: 1.25rem; padding-top: 1rem;
-  border-top: 1px solid var(--border);
-}
-.btn-apply-lg {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 9px 20px; border-radius: 8px; font-size: 0.875rem; font-weight: 600;
-  background: var(--primary); border: none; color: #fff; cursor: pointer;
-}
-.btn-apply-lg:hover { opacity: 0.88; }
-.btn-reset {
-  background: none; border: 1.5px solid var(--border); border-radius: 8px;
-  padding: 8px 16px; font-size: 0.85rem; font-weight: 600;
-  color: var(--text-2); cursor: pointer; transition: all 0.15s;
-}
-.btn-reset:hover { border-color: var(--text-2); color: var(--text-1); }
 
 /* ── KPIs ────────────────────────────────────────────────── */
-.ds-kpi-row { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; align-items: center; }
-.ds-kpi-card {
-  flex: 1; min-width: 160px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  border-radius: var(--radius); padding: 1.25rem 1.5rem; text-align: center;
-}
-.ds-kpi-value { font-size: 2rem; font-weight: 800; color: #fff; letter-spacing: -0.02em; }
-.ds-kpi-label { font-size: 0.78rem; color: rgba(255,255,255,0.8); font-weight: 600;
-                text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
-
-.ds-filter-badge {
-  flex: none; padding: 8px 14px; border-radius: 8px;
-  background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2);
-  font-size: 0.8rem; color: var(--text-2);
-}
+.ds-kpi-row { display: flex; gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+.ds-kpi-card { flex: 1; min-width: 170px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border-radius: var(--radius); padding: 1.1rem 1.25rem; text-align: center; cursor: help; }
+.ds-kpi-value { font-size: 1.7rem; font-weight: 800; color: #fff; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; word-break: break-all; }
+.ds-kpi-label { font-size: 0.75rem; color: rgba(255,255,255,0.88); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
+.ds-kpi-sub { font-size: 0.72rem; color: rgba(255,255,255,0.7); margin-top: 2px; }
+.ds-filter-badge { padding: 8px 14px; border-radius: 8px; margin-bottom: 0.75rem; background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); font-size: 0.82rem; color: var(--text-2); }
 
 /* ── Charts ──────────────────────────────────────────────── */
-.ds-charts-grid {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;
-}
-@media (max-width: 1024px) { .ds-charts-grid { grid-template-columns: repeat(2,1fr); } }
-@media (max-width: 640px)  { .ds-charts-grid { grid-template-columns: 1fr; } }
+.ds-charts-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+@media (max-width: 1100px) { .ds-charts-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 680px)  { .ds-charts-grid { grid-template-columns: minmax(0, 1fr); } }
+.ds-chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.1rem 1.25rem; display: flex; flex-direction: column; }
+.ds-chart-title { font-size: 0.8125rem; font-weight: 600; color: var(--text-2); margin-bottom: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-chart-body { height: 250px; position: relative; }
+.ds-check { font-size: 0.74rem; margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px dashed var(--border); }
+.ds-check.ok { color: #059669; }
+.ds-check.bad { color: #dc2626; font-weight: 600; }
+.ds-empty-result { grid-column: 1 / -1; padding: 3rem; text-align: center; color: var(--text-2); background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius); }
 
-.ds-chart-card {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 1.25rem;
-}
-.ds-chart-title {
-  font-size: 0.8125rem; font-weight: 600; color: var(--text-2);
-  margin-bottom: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.ds-chart-body { height: 240px; position: relative; }
+/* ── Rows modal ──────────────────────────────────────────── */
+.ds-modal { position: fixed; inset: 0; background: rgba(15,23,42,0.45); z-index: 1050; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.ds-modal-box { background: var(--surface); border-radius: var(--radius); width: min(1200px, 100%); max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 20px 50px rgba(0,0,0,0.25); }
+.ds-modal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+.ds-modal-title { font-weight: 700; color: var(--text-1); }
+.ds-modal-sub { font-size: 0.8rem; color: var(--text-3); }
+.ds-modal-body { overflow: auto; flex: 1; }
+.ds-rows-table td { white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+.ds-rows-table thead th { position: sticky; top: 0; background: var(--surface); }
+.ds-modal-foot { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.75rem 1.25rem; border-top: 1px solid var(--border); }
 
 /* ── States ──────────────────────────────────────────────── */
-.ds-loading, .ds-placeholder, .ds-empty {
-  display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: 12px; padding: 4rem;
-  color: var(--text-2); text-align: center;
-}
+.ds-loading, .ds-placeholder, .ds-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 4rem 1rem; color: var(--text-2); text-align: center; }
+@media (max-width: 640px) { .ds-header { flex-direction: column; } .ds-select { min-width: 0; width: 100%; } .ds-doc-select-wrap { width: 100%; } }
 </style>
 {% endblock %}

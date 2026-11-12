@@ -298,97 +298,6 @@ def delete_document(document_id: int):
     client.table("documents").delete().eq("id", document_id).execute()
 
 
-# -- Structured row storage (for Data Studio) ---------------------------------
-
-def _safe_json_val(v):
-    """Convert any openpyxl/csv cell value to a JSON-serializable Python primitive."""
-    if v is None:
-        return None
-    if isinstance(v, bool):
-        return v
-    if isinstance(v, int):
-        return v
-    if isinstance(v, float):
-        return None if (v != v) else v  # NaN → None
-    if isinstance(v, str):
-        s = v.strip()
-        return s if s else None
-    if hasattr(v, "isoformat"):   # datetime, date, time
-        return v.isoformat()
-    try:
-        import decimal
-        if isinstance(v, decimal.Decimal):
-            return float(v)
-    except (ImportError, OverflowError):
-        pass
-    return str(v)                 # fallback — never crash
-
-
-def extract_structured_rows(file_bytes: bytes, file_type: str) -> tuple[list[str], list[dict]]:
-    """Extract column headers + raw rows from xlsx/csv for dashboard use."""
-    ft = file_type.lower()
-    if ft in ("xlsx", "xls"):
-        import openpyxl
-        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
-        ws = wb.active
-        rows = list(ws.iter_rows(values_only=True))
-        wb.close()
-        if not rows:
-            return [], []
-        headers = [str(h).strip() if h is not None else f"Col{i+1}"
-                   for i, h in enumerate(rows[0])]
-        data_rows = []
-        for row in rows[1:]:
-            if all(cell is None or str(cell).strip() == "" for cell in row):
-                continue
-            row_dict = {}
-            for h, v in zip(headers, row):
-                safe = _safe_json_val(v)
-                if safe is not None:
-                    row_dict[h] = safe
-            if row_dict:
-                data_rows.append(row_dict)
-        return headers, data_rows
-    elif ft == "csv":
-        import csv
-        if file_bytes[:2] in (b'\xff\xfe', b'\xfe\xff'):
-            text = file_bytes.decode("utf-16", errors="replace")
-        elif file_bytes[:3] == b'\xef\xbb\xbf':
-            text = file_bytes[3:].decode("utf-8", errors="replace")
-        else:
-            text = file_bytes.decode("utf-8", errors="replace")
-        text = text.replace("\x00", "")
-        sample = text[:2000]
-        delimiter = "\t" if sample.count("\t") > sample.count(",") else ","
-        reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
-        headers = list(reader.fieldnames or [])
-        data_rows = [dict(r) for r in reader
-                     if any(str(v).strip() for v in r.values())]
-        return headers, data_rows
-    return [], []
-
-
-MAX_DATA_ROWS = 20000   # safety cap so a huge file can't blow the timeout
-
-
-def store_structured_rows(document_id: int, document_name: str, rows: list[dict]):
-    """Bulk-insert raw structured rows into dataset_rows."""
-    client = get_client()
-    rows = rows[:MAX_DATA_ROWS]
-    batch = []
-    for row in rows:
-        batch.append({
-            "document_id":   document_id,
-            "document_name": document_name,
-            "row_data":      row,
-        })
-        if len(batch) >= 500:
-            client.table("dataset_rows").insert(batch).execute()
-            batch = []
-    if batch:
-        client.table("dataset_rows").insert(batch).execute()
-
-
 # -- Main entry point ---------------------------------------------------------
 
 def process_and_store(filename: str, file_bytes: bytes, file_type: str) -> dict:
@@ -408,25 +317,10 @@ def process_and_store(filename: str, file_bytes: bytes, file_type: str) -> dict:
 
     doc_id = store_document(filename, file_type, len(file_bytes))
 
-    # Store raw rows for Data Studio (xlsx/csv only).
-    data_studio_warning = None
-    data_rows_stored    = 0
-    if file_type.lower() in ("xlsx", "xls", "csv"):
-        try:
-            _, rows = extract_structured_rows(file_bytes, file_type)
-            if rows:
-                store_structured_rows(doc_id, filename, rows)
-                data_rows_stored = min(len(rows), MAX_DATA_ROWS)
-                if len(rows) > MAX_DATA_ROWS:
-                    data_studio_warning = (
-                        f"File has {len(rows):,} rows; only the first "
-                        f"{MAX_DATA_ROWS:,} were loaded into Data Studio."
-                    )
-            else:
-                data_studio_warning = "No structured rows found -- file may be empty or have no header row."
-        except Exception as e:
-            log.exception("Data Studio indexing failed for %s", filename)
-            data_studio_warning = f"Data Studio indexing failed: {type(e).__name__}: {e}"
+    # Data Studio: every sheet becomes a dataset, parsed and checked once here.
+    data_studio = None
+    if file_type.lower() in TABULAR_TYPES:
+        data_studio = import_for_data_studio(doc_id, filename, file_bytes, file_type)
 
     try:
         store_chunks(doc_id, filename, chunks)
@@ -440,12 +334,58 @@ def process_and_store(filename: str, file_bytes: bytes, file_type: str) -> dict:
         "document_id":        doc_id,
         "chunks":             len(chunks),
         "name":               filename,
-        "data_rows_stored":   data_rows_stored,
         "pending_embeddings": len(chunks),
     }
-    if data_studio_warning:
-        result["data_studio_warning"] = data_studio_warning
+    if data_studio is not None:
+        result["data_studio"] = data_studio
+        result["data_rows_stored"] = sum(d["rows"] for d in data_studio["datasets"])
+        if data_studio.get("error"):
+            result["data_studio_warning"] = data_studio["error"]
+        elif data_studio["warnings"]:
+            result["data_studio_warning"] = (
+                f'{data_studio["warnings"]} thing(s) to check in the import report '
+                "(Data Studio → Import check).")
     return result
+
+
+TABULAR_TYPES = ("xlsx", "xlsm", "xls", "csv", "tsv")
+
+
+def import_for_data_studio(doc_id: int, filename: str, file_bytes: bytes, file_type: str) -> dict:
+    """
+    Parse a spreadsheet with services.tabular and store each sheet as a
+    Data Studio dataset. Never raises: a file Data Studio can't read is still
+    kept for Smart Search, with the reason reported to the user.
+    Returns {"datasets": [{"id", "sheet", "rows", "warnings"}], "warnings": n,
+             "notes": [...], "error": str | None}.
+    """
+    from services import dataset_store, tabular
+    out = {"datasets": [], "warnings": 0, "notes": [], "error": None}
+    try:
+        sheets, notes = tabular.read_file(file_bytes, file_type)
+        out["notes"] = notes
+        for sh in sheets:
+            try:
+                a = tabular.analyse_sheet(sh)
+            except tabular.TabularError as e:
+                label = f"Sheet '{sh.name}'" if sh.name else "The file"
+                out["notes"].append(f"{label} was not loaded into Data Studio: {e}")
+                continue
+            if notes:
+                a.report["file_notes"] = notes
+            ds_id = dataset_store.save_dataset(doc_id, filename, a, sh.percent_cols)
+            n_warn = sum(1 for w in a.report["warnings"] if w["level"] == "warn")
+            out["datasets"].append({"id": ds_id, "sheet": sh.name, "rows": a.data_rows,
+                                    "warnings": n_warn})
+            out["warnings"] += n_warn
+        if not out["datasets"]:
+            out["error"] = "No table was found for Data Studio. " + " ".join(out["notes"])
+    except tabular.TabularError as e:
+        out["error"] = str(e)
+    except Exception as e:
+        log.exception("Data Studio import failed for %s", filename)
+        out["error"] = f"Data Studio import failed ({type(e).__name__}). The file is still searchable."
+    return out
 
 
 def get_all_documents() -> list[dict]:
