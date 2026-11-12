@@ -97,6 +97,8 @@ Rules:
 - Use column names exactly as listed. Copy text values exactly as listed when one fits.
 - "How many" / "count" / "number of" rows -> count_rows. "Highest/lowest X by Y" -> group_by Y,
   measure on X, top 1 with order desc/asc. "Percentage of rows that ..." -> count_rows with the filter.
+- Time periods: if the table has a date column, filter that. A number column of years
+  (e.g. "Year") takes plain years: {{"op":"eq","value":"2014"}}, never full dates.
 - Dates: use ISO dates. "in August 2014" -> {{"op":"between","from":"2014-08-01","to":"2014-08-31"}}.
   "in 2014" on a date column -> between 2014-01-01 and 2014-12-31.
 - A word like "9th" on a number column means 9.
@@ -197,8 +199,21 @@ def _date(text, col_name: str) -> str:
     return t
 
 
-def _number(text, col_name: str) -> str:
+def _is_year_column(col: dict) -> bool:
+    from services.tabular import _tokens
+    s = col["stats"]
+    looks = s.get("integers_only") and s.get("min") is not None \
+        and 1900 <= Decimal(s["min"]) and Decimal(s["max"]) <= 2100
+    return bool(looks) or bool({"year", "yr", "fy"} & set(_tokens(col["name"])))
+
+
+def _number(text, col_name: str, col: dict | None = None) -> str:
     t = re.sub(r"(?<=\d)(st|nd|rd|th)\b", "", str(text).strip())
+    # A date given for a Year column ("2014-01-01".."2014-12-31") means the year.
+    if col is not None and _is_year_column(col):
+        m = re.fullmatch(r"(\d{4})-\d{2}-\d{2}(?:[T ].*)?", t)
+        if m:
+            t = m.group(1)
     try:
         return str(Decimal(t.replace(",", "")))
     except Exception:
@@ -252,7 +267,7 @@ def resolve(dataset_id: int, meta: dict, p: dict) -> dict:
             filters.append({"col": pos, "op": op})
             described.append(f"{name} is {'blank' if op == 'blank' else 'not blank'}")
         elif op == "between":
-            conv = _date if t == "date" else _number if t == "number" else None
+            conv = _date if t == "date" else (lambda v, n: _number(v, n, col)) if t == "number" else None
             if conv is None:
                 raise Clarify(f"{name} is text, so it can't be a range.")
             lo = conv(f["from"], name) if f.get("from") not in (None, "") else None
@@ -260,7 +275,7 @@ def resolve(dataset_id: int, meta: dict, p: dict) -> dict:
             filters.append({"col": pos, "op": "between", "from": lo, "to": hi})
             described.append(f"{name} from {lo or '…'} to {hi or '…'}")
         elif op in ("gt", "gte", "lt", "lte") or (op == "eq" and t in ("number", "date")):
-            conv = _date if t == "date" else _number if t == "number" else None
+            conv = _date if t == "date" else (lambda v, n: _number(v, n, col)) if t == "number" else None
             if conv is None:
                 raise Clarify(f"{name} is text, so it can't be compared as a number.")
             v = conv(f.get("value"), name)

@@ -230,3 +230,11 @@ def test_a_month_name_filter_repeating_the_date_range_is_dropped(ds, planner):
 def test_internal_tags_never_reach_the_user(raw, expected):
     from services.rag_graph import _parse_response
     assert _parse_response(raw)["answer"] == expected
+
+
+def test_full_dates_given_for_a_year_column_mean_that_year(ds, planner):
+    """Live check: 'most units in 2014' sent Year between 2014-01-01 and 2014-12-31."""
+    planner({"kind": "aggregate", "measure": {"agg": "count_rows"},
+             "filters": [{"column": "Year", "op": "between", "from": "2025-01-01", "to": "2025-12-31"}]})
+    out = ask()["answer"]
+    assert out.startswith("**2** rows where Year from 2025 to 2025")
