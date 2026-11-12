@@ -283,6 +283,10 @@ def _parse_response(raw: str) -> dict:
             outdated_reason = line.split(":", 1)[1].strip()
             break
 
+    # Models sometimes emit a lone or misplaced tag ("</answer> Based on...").
+    answer = re.sub(r"</?\s*answer\s*>", "", answer, flags=re.IGNORECASE)
+    answer = re.sub(r"\s*OUTDATED_REASON:.*$", "", answer, flags=re.IGNORECASE | re.MULTILINE)
+    answer = re.sub(r"\s*OUTDATED_FLAG:\s*(YES|NO)\b\.?", "", answer, flags=re.IGNORECASE)
     cleaned = [
         ln for ln in answer.splitlines()
         if not ln.strip().upper().startswith("OUTDATED_FLAG:")

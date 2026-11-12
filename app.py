@@ -567,6 +567,19 @@ def admin_health():
     return jsonify(result)
 
 
+@app.route("/admin/search-check")
+@admin_required
+def admin_search_check():
+    """Ask Smart Search fixed data questions and check each answer against
+    the engine's own figure. Uses the live model; stores nothing."""
+    from services import search_check
+    try:
+        return jsonify(search_check.run())
+    except Exception as e:
+        app.logger.exception("Search check failed")
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+
+
 @app.route("/onboarding/delete/<int:doc_id>", methods=["POST"])
 @admin_required
 def onboarding_delete(doc_id: int):

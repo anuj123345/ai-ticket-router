@@ -100,7 +100,8 @@ Rules:
 - Dates: use ISO dates. "in August 2014" -> {{"op":"between","from":"2014-08-01","to":"2014-08-31"}}.
   "in 2014" on a date column -> between 2014-01-01 and 2014-12-31.
 - A word like "9th" on a number column means 9.
-- Put a filter for every condition in the question, and nothing else.
+- One filter per condition in the question, and nothing else. A time period is ONE filter on
+  the date column; never also filter a month-name, year or quarter column for the same period.
 - "list"/"show"/"which rows" questions -> kind "list" with the filters.
 """
 
@@ -204,9 +205,39 @@ def _number(text, col_name: str) -> str:
         raise Clarify(f'I couldn\'t read "{text}" as a number for {col_name}.')
 
 
+_PERIOD_WORDS = {"month", "year", "quarter", "qtr", "fy", "week", "day"}
+
+
+def _drop_repeated_periods(meta: dict, filters: list) -> list:
+    """If the plan filters a date column by range, a second filter on a
+    'Month Name' / 'Year' column for the same period is redundant, and can
+    only lose rows where the two columns disagree. Drop it."""
+    from services.tabular import _tokens
+    has_range = False
+    for f in filters:
+        try:
+            has_range |= _column(meta, f.get("column"))["type"] == "date" and f.get("op") in ("between", "gte", "lte", "gt", "lt", "eq")
+        except Clarify:
+            pass
+    if not has_range:
+        return filters
+    keep = []
+    for f in filters:
+        try:
+            c = _column(meta, f.get("column"))
+        except Clarify:
+            keep.append(f)
+            continue
+        if c["type"] != "date" and set(_tokens(c["name"])) & _PERIOD_WORDS:
+            continue
+        keep.append(f)
+    return keep
+
+
 def resolve(dataset_id: int, meta: dict, p: dict) -> dict:
     """Plan -> engine spec, with every column and value checked. Raises Clarify."""
     kind = p.get("kind") or "aggregate"
+    p = {**p, "filters": _drop_repeated_periods(meta, p.get("filters") or [])}
     if kind == "not_about_this_table":
         raise NotAPlan("not about this table")
 

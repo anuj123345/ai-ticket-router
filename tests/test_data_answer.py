@@ -208,3 +208,25 @@ def test_thumbs_up_does_not_store_data_answers_as_verified(monkeypatch):
                         lambda: types.SimpleNamespace(table=lambda n: Q(n)))
     onboarding_agent.save_verified_qa(1)
     assert writes == []
+
+
+def test_a_month_name_filter_repeating_the_date_range_is_dropped(ds, planner):
+    """Live answer added Month Name = "August" on top of the August date range."""
+    planner({"kind": "aggregate", "measure": {"agg": "count_rows"},
+             "filters": [{"column": "Date", "op": "between", "from": "2024-02-01", "to": "2024-02-29"},
+                         {"column": "Year", "op": "eq", "value": "2024"}]})
+    out = ask()["answer"]
+    assert "Year" not in out
+    assert out.startswith("**2** rows where Date from 2024-02-01 to 2024-02-29")
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("</answer> Based on the data, 14 students.\nOUTDATED_FLAG: NO", "Based on the data, 14 students."),
+    ("<answer> Found 7 of 200", "Found 7 of 200"),
+    ("<answer>\nThe policy is X.\n</answer>\nOUTDATED_FLAG: NO", "The policy is X."),
+    ("The 401(k) match is 4%. OUTDATED_FLAG: NO", "The 401(k) match is 4%."),     # conversation #4
+    ("Leave is 16 weeks.\nOUTDATED_FLAG: YES\nOUTDATED_REASON: 2023 policy", "Leave is 16 weeks."),
+])
+def test_internal_tags_never_reach_the_user(raw, expected):
+    from services.rag_graph import _parse_response
+    assert _parse_response(raw)["answer"] == expected
