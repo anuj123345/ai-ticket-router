@@ -404,6 +404,10 @@ _AVG_TOKENS = {
     "price", "rate", "percent", "percentage", "pct", "avg", "average", "mean", "ratio",
     "score", "rating", "age", "mrp", "gpa", "cgpa", "share", "margin%",
 }
+# A minimum, maximum, age or level of each row: adding them up means nothing.
+_AVG_TOKENS |= {"min", "max", "minimum", "maximum", "level", "grade", "temperature", "temp",
+                "weight", "height", "duration", "tenure", "experience", "speed"}
+_AVG_PREFIXES = ("age", "avg", "average", "rate", "price")
 _COUNT_OF_RE = re.compile(r"^\s*(number|no|nos|num|count|total)\b\.?\s*(of\b)?", re.I)
 
 _MONTH_NAMES = set(_MONTHS)
@@ -670,6 +674,7 @@ def _guess_number_agg(name: str, fmt: str, all_int: bool, distinct: int, good: i
     toks = _tokens(name)
     counting = bool(_COUNT_OF_RE.match(name)) and len(toks) > 1
     if fmt == "percent" or "%" in name or any(t in _AVG_TOKENS for t in toks) \
+            or any(t.startswith(_AVG_PREFIXES) for t in toks) \
             or re.search(r"\bper\b", name, re.I):
         return "avg"
     if not counting and any(t in _ID_TOKENS for t in toks):

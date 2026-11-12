@@ -235,3 +235,19 @@ def test_placeholder_words_are_real_labels_in_text_columns():
     assert sales.type == "number"
     assert sales.values[4] is None                      # "-" is blank in a number column
     assert sales.stats["placeholders"] == 1
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("agerange_min", "avg"),          # lego_sets.csv: summing minimum ages is meaningless
+    ("Age Range Max", "avg"),
+    ("Min Temperature", "avg"),
+    ("US_retailPrice", "avg"),
+    ("Experience (years)", "avg"),
+    ("pieces", "sum"),
+    ("minifigs", "sum"),              # a count of figures: sum is right
+    ("Number of students", "sum"),
+    ("Sales", "sum"),
+])
+def test_default_calculation_by_column_name(name, expected):
+    from decimal import Decimal
+    assert tabular._guess_number_agg(name, "plain", True, 15, 6787, Decimal(1), Decimal(18)) == expected
