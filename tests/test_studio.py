@@ -232,3 +232,30 @@ def test_auto_dashboard_never_groups_by_mixed_or_id_like_columns(engine):
     flagged = {c["pos"] for c in meta["columns"] if c["warnings"]}
     for ch in studio.build(ds)["charts"]:
         assert ch["spec"]["x"] not in flagged, ch["title"]
+
+
+def test_a_dataset_cut_off_half_way_is_never_shown(engine, monkeypatch):
+    """A time limit can kill the server mid-insert. The partial dataset must stay hidden."""
+    sheets, _ = tabular.read_file(workbook(), "xlsx")
+    a = tabular.analyse_sheet(sheets[0])
+    doc_id = (engine.sql("insert into public.documents (name, file_type) values ('c.xlsx','xlsx') returning id")[0][0]
+              if hasattr(engine, "sql") else 1)
+    monkeypatch.setattr(dataset_store, "INSERT_BATCH", 5)
+    real_table = engine.table
+    calls = {"n": 0}
+
+    class Killed(BaseException):        # like a process kill: no cleanup code runs
+        pass
+
+    def table(name):
+        q = real_table(name)
+        if name == "dataset_records":
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise Killed()
+        return q
+    monkeypatch.setattr(engine, "table", table)
+    with pytest.raises(Killed):
+        dataset_store.save_dataset(doc_id, "c.xlsx", a, set())
+    monkeypatch.setattr(engine, "table", real_table)
+    assert dataset_store.list_datasets() == []

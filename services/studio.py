@@ -78,7 +78,8 @@ def _public_meta(ds: dict) -> dict:
     return {
         "id": ds["id"], "document_name": ds["document_name"], "sheet": ds["sheet_name"],
         "rows": ds["row_count"], "header_row": ds["header_row"],
-        "options": {k: v for k, v in (ds.get("options") or {}).items() if k != "percent_cols"},
+        "options": {k: v for k, v in (ds.get("options") or {}).items()
+                    if k not in ("percent_cols", "_loading")},
         "columns": cols, "report": report,
         "warning_count": sum(1 for w in report.get("warnings", []) if w.get("level") == "warn"),
     }

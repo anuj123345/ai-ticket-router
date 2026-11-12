@@ -32,6 +32,9 @@ def save_dataset(document_id: int, document_name: str, a: Analysed,
     client = get_client()
     opts = dict(options or {})
     opts["percent_cols"] = sorted(percent_cols or [])
+    # Hidden until every row is stored: if the server is stopped half-way
+    # (e.g. a time limit), a partial dataset must never show partial totals.
+    opts["_loading"] = True
     resp = client.table("datasets").insert({
         "document_id":   document_id,
         "document_name": document_name,
@@ -54,6 +57,8 @@ def save_dataset(document_id: int, document_name: str, a: Analysed,
                 batch = []
         if batch:
             client.table("dataset_records").insert(batch).execute()
+        opts.pop("_loading")
+        client.table("datasets").update({"options": opts}).eq("id", dataset_id).execute()
     except Exception:
         # Never leave a half-loaded dataset behind: its totals would be wrong.
         log.exception("Saving dataset %s failed; removing it", dataset_id)
@@ -131,9 +136,12 @@ def rebuild_dataset(dataset_id: int, changes: dict) -> dict:
 def list_datasets() -> list[dict]:
     client = get_client()
     rows = (client.table("datasets")
-            .select("id, document_id, document_name, sheet_name, sheet_index, row_count")
+            .select("id, document_id, document_name, sheet_name, sheet_index, row_count, options")
             .order("document_name").order("sheet_index")
             .execute()).data or []
+    rows = [r for r in rows if not (r.get("options") or {}).get("_loading")]
+    for r in rows:
+        r.pop("options", None)
     per_doc: dict[int, int] = {}
     for r in rows:
         per_doc[r["document_id"]] = per_doc.get(r["document_id"], 0) + 1
@@ -151,6 +159,8 @@ def get_dataset(dataset_id: int) -> dict:
     if not rows:
         raise DatasetNotFound(f"Dataset {dataset_id} not found")
     ds = rows[0]
+    if (ds.get("options") or {}).get("_loading"):
+        raise DatasetNotFound(f"Dataset {dataset_id} did not finish loading; re-upload the file")
     ds["columns"] = (client.table("dataset_columns").select("*")
                      .eq("dataset_id", dataset_id).order("pos").execute()).data or []
     return ds
@@ -185,7 +195,8 @@ def legacy_documents() -> list[dict]:
     docs = (client.table("documents").select("id, name, file_type")
             .execute()).data or []
     converted = {r["document_id"] for r in
-                 (client.table("datasets").select("document_id").execute()).data or []}
+                 (client.table("datasets").select("document_id, options").execute()).data or []
+                 if not (r.get("options") or {}).get("_loading")}
     out = []
     for d in docs:
         if (d.get("file_type") or "").lower() not in TABULAR_TYPES or d["id"] in converted:
@@ -218,6 +229,11 @@ def convert_legacy(document_id: int) -> int:
     if not doc:
         raise DatasetNotFound(f"Document {document_id} not found")
     name = doc[0]["name"]
+    # A conversion that was cut off earlier left a hidden partial dataset.
+    for old in (client.table("datasets").select("id, options")
+                .eq("document_id", document_id).execute()).data or []:
+        if (old.get("options") or {}).get("_loading"):
+            client.table("datasets").delete().eq("id", old["id"]).execute()
 
     records: list[dict] = []
     start = 0
