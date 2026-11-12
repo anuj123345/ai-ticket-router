@@ -2,6 +2,7 @@
 AI Ticket Router — Flask Application
 """
 
+import hmac
 import json
 import logging
 import os
@@ -37,7 +38,8 @@ app = Flask(__name__,
 )
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-in-prod")
 
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+# No default: if ADMIN_PASSWORD is not set, admin sign-in is disabled (never "admin123").
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
 init_db()
 
@@ -64,6 +66,25 @@ def admin_required(f):
     return decorated
 
 
+def safe_next(target: str | None, default: str) -> str:
+    """
+    Where to go after login. Only paths on this site are allowed, so a login
+    link can't send someone to another website after they sign in
+    (open redirect: /login?next=https://evil.example).
+    """
+    from urllib.parse import urlparse
+    if not target or not isinstance(target, str):
+        return default
+    t = target.strip()
+    if (not t.startswith("/") or t.startswith("//") or "\\" in t
+            or any(ord(ch) < 32 or ord(ch) == 127 for ch in t)):
+        return default
+    u = urlparse(t)
+    if u.scheme or u.netloc:
+        return default
+    return t
+
+
 # ── User auth routes ──────────────────────────────────────────────────────────
 
 @app.route("/login", methods=["GET", "POST"])
@@ -79,11 +100,12 @@ def login():
 
         user = get_user_by_email_with_hash(email)
         if user and verify_password(user, password):
+            next_url = safe_next(request.args.get("next"), url_for("welcome"))
+            session.clear()          # a fresh session at sign-in (no session fixation)
             session["user_id"]   = user["id"]
             session["user_name"] = user["name"]
             session["user_email"]= user["email"]
             session["user_role"] = user.get("role", "user")
-            next_url = request.args.get("next", url_for("welcome"))
             return redirect(next_url)
         else:
             error = "Invalid email or password."
@@ -166,10 +188,9 @@ def welcome():
 def admin_login():
     if request.method == "POST":
         password = request.form.get("password", "")
-        if password == ADMIN_PASSWORD:
+        if ADMIN_PASSWORD and hmac.compare_digest(password.encode(), ADMIN_PASSWORD.encode()):
             session["admin_authenticated"] = True
-            next_url = request.args.get("next", url_for("onboarding_admin"))
-            return redirect(next_url)
+            return redirect(safe_next(request.args.get("next"), url_for("onboarding_admin")))
         flash("Incorrect password.", "error")
     return render_template("admin_login.html")
 
