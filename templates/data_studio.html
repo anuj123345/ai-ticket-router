@@ -36,9 +36,7 @@
       <select id="dsSelect" class="ds-select" onchange="onDatasetChange()">
         <option value="">— Select a file —</option>
         {% for d in datasets %}
-        <option value="{{ d.id if d.id else '' }}" data-doc="{{ d.document_id or '' }}" data-legacy="{{ 1 if d.legacy else 0 }}">
-          {{ d.label }}{% if d.rows %} ({{ '{:,}'.format(d.rows) }} rows){% endif %}{% if d.legacy %} — older upload, converts on open{% endif %}
-        </option>
+        <option value="{{ d.id }}">{{ d.label }} ({{ '{:,}'.format(d.rows) }} rows)</option>
         {% endfor %}
       </select>
     </div>
@@ -213,19 +211,12 @@ function togglePanel(name) {
 /* ── Opening a dataset ─────────────────────────────────── */
 async function onDatasetChange() {
   const sel = document.getElementById('dsSelect');
-  const opt = sel.options[sel.selectedIndex];
   filters = []; charts = null; meta = null;
   document.getElementById('controlsActions').style.display = 'none';
-  if (!sel.value && !opt.dataset.doc) { showPlaceholder('Select a file to build its dashboard.'); return; }
-  const legacy = opt.dataset.legacy === '1';
-  showLoading(legacy ? 'Converting this older upload to the exact engine (one time only)…' : 'Opening…');
+  if (!sel.value) { showPlaceholder('Select a file to build its dashboard.'); return; }
+  showLoading('Opening…');
   try {
-    meta = await post('/data-studio/open', legacy ? { document_id: Number(opt.dataset.doc) }
-                                                  : { dataset_id: Number(sel.value) });
-    if (legacy) {        // from now on it is a normal dataset
-      opt.value = meta.id; opt.dataset.legacy = '0';
-      opt.textContent = `${meta.document_name} (${meta.rows.toLocaleString()} rows)`;
-    }
+    meta = await post('/data-studio/open', { dataset_id: Number(sel.value) });
   } catch (e) { showPlaceholder(e.message, true); return; }
   document.getElementById('controlsActions').style.display = 'flex';
   renderReport(); renderColumns(); renderFilterPanel(); renderChartRows([]);

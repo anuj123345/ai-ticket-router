@@ -206,19 +206,6 @@ def test_number_display(value, fmt, agg, expected):
     assert studio.fmt_number(value, fmt, agg) == expected
 
 
-# ── Old-format uploads ───────────────────────────────────────────────────────
-
-def test_legacy_column_order_is_recovered_from_the_first_chunk():
-    keys = ["COGS", "Date", "Sales", "Country", "Gross Sales", "Segment"]   # jsonb key order
-    chunk = ("[Sheet1]\n## Sheet1 Segment: Government, Country: Germany, Gross Sales: 529550, "
-             "Sales: 529550, COGS: 393380, Date: 2014-12-01 00:00:00")
-    assert dataset_store._legacy_column_order(keys, chunk) == \
-        ["Segment", "Country", "Gross Sales", "Sales", "COGS", "Date"]
-    csv_chunk = "## Data (set_id, name, year, theme) set_id: 1-8, name: Small house set, year: 1970"
-    assert dataset_store._legacy_column_order(["year", "name", "theme", "set_id"], csv_chunk) == \
-        ["set_id", "name", "year", "theme"]
-
-
 def test_auto_dashboard_never_groups_by_mixed_or_id_like_columns(engine):
     from tests import messy_files
     sheets, _ = tabular.read_file(messy_files.indian_csv(), "csv")

@@ -46,22 +46,19 @@ class StudioError(ValueError):
 # ── Datasets ─────────────────────────────────────────────────────────────────
 
 def list_all() -> list[dict]:
-    """Datasets ready to open, plus older uploads that convert on first open."""
+    """Datasets ready to open."""
     items = [{"id": d["id"], "label": d["label"], "rows": d["row_count"], "legacy": False}
              for d in dataset_store.list_datasets()]
-    for d in dataset_store.legacy_documents():
-        items.append({"id": None, "document_id": d["document_id"], "label": d["name"],
-                      "rows": None, "legacy": True})
     return sorted(items, key=lambda x: x["label"].lower())
 
 
 def open_dataset(dataset_id: int | None = None, document_id: int | None = None) -> dict:
-    """Metadata for the page. Converts an old-format document on first open."""
+    """Metadata for the page."""
     if dataset_id is None:
-        if document_id is None:
-            raise StudioError("dataset_id or document_id required")
         existing = [d for d in dataset_store.list_datasets() if d["document_id"] == document_id]
-        dataset_id = existing[0]["id"] if existing else dataset_store.convert_legacy(document_id)
+        if not existing:
+            raise StudioError("This file has no Data Studio data. Re-upload it to load it.")
+        dataset_id = existing[0]["id"]
     ds = dataset_store.get_dataset(dataset_id)
     return _public_meta(ds)
 

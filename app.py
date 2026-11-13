@@ -622,7 +622,6 @@ def onboarding_admin():
     from services import dataset_store
     try:
         ready = {d["document_id"] for d in dataset_store.list_datasets()}
-        ready |= {d["document_id"] for d in dataset_store.legacy_documents()}
     except Exception:
         app.logger.exception("Could not list Data Studio datasets")
         ready = None
