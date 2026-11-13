@@ -1,0 +1,78 @@
+version: 2
+
+models:
+  - name: fct_tickets
+    description: >
+      Gold fact. One row per ticket, loaded incrementally on updated_at.
+      Joins to dim_department, dim_priority, dim_status and dim_date.
+    columns:
+      - name: ticket_id
+        data_tests: [unique, not_null]
+      - name: created_date_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: resolved_date_key
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: department_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_department'), field: department_key}
+      - name: priority_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_priority'), field: priority_key}
+      - name: status_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_status'), field: status_key}
+
+  - name: dim_department
+    columns:
+      - name: department_key
+        data_tests: [unique, not_null]
+      - name: department
+        data_tests: [unique, not_null]
+
+  - name: dim_priority
+    columns:
+      - name: priority_key
+        data_tests: [unique, not_null]
+
+  - name: dim_status
+    columns:
+      - name: status_key
+        data_tests: [unique, not_null]
+
+  - name: dim_date
+    columns:
+      - name: date_key
+        data_tests: [unique, not_null]
+      - name: date_day
+        data_tests: [unique, not_null]
+
+  - name: agg_tickets_daily
+    description: Tickets per day per department, with running total and 7-day rolling average.
+    columns:
+      - name: date_key
+        data_tests: [not_null]
+      - name: tickets_created
+        data_tests:
+          - between:
+              arguments: {min_value: 0, max_value: 1000000}
+
+  - name: fct_ticket_status_changes
+    description: One row per status change, from the SCD2 snapshot, with time spent in the previous status.
+    columns:
+      - name: ticket_id
+        data_tests: [not_null]
+      - name: hours_in_previous_status
+        data_tests:
+          - between:
+              arguments: {min_value: 0, max_value: 100000}

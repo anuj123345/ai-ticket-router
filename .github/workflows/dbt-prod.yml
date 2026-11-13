@@ -1,0 +1,68 @@
+# Hourly production build of silver, gold and the SCD2 snapshot.
+# A failed run (a failing test, or the database unreachable) fails this
+# workflow, and GitHub emails the repository owner.
+name: dbt production build
+
+on:
+  schedule:
+    - cron: "17 * * * *"      # every hour at :17
+  workflow_dispatch:
+
+concurrency:
+  group: dbt-prod
+  cancel-in-progress: false   # never run two builds against production at once
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DBT_TARGET: prod
+      DBT_PROFILES_DIR: ${{ github.workspace }}/analytics
+      DBT_HOST: ${{ secrets.DBT_HOST }}
+      DBT_PORT: ${{ secrets.DBT_PORT }}
+      DBT_USER: ${{ secrets.DBT_USER }}
+      DBT_PASSWORD: ${{ secrets.DBT_PASSWORD }}
+      DBT_DBNAME: postgres
+    steps:
+      - name: Skip until the database secrets are set
+        id: ready
+        run: |
+          if [ -z "$DBT_HOST" ] || [ -z "$DBT_PASSWORD" ]; then
+            echo "DBT_HOST / DBT_PASSWORD secrets are not set yet; nothing to do."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.ready.outputs.ok == 'true'
+      - uses: actions/setup-python@v5
+        if: steps.ready.outputs.ok == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: analytics/requirements.txt
+      - if: steps.ready.outputs.ok == 'true'
+        run: pip install -r analytics/requirements.txt
+      - name: Source freshness (warns only)
+        if: steps.ready.outputs.ok == 'true'
+        working-directory: analytics
+        run: dbt source freshness || true
+      - name: Build and test
+        if: steps.ready.outputs.ok == 'true'
+        working-directory: analytics
+        run: dbt build
+      - name: Keep the run artifacts
+        if: always() && steps.ready.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-run-${{ github.run_id }}
+          path: |
+            analytics/target/run_results.json
+            analytics/target/sources.json
+            analytics/logs/dbt.log
+          retention-days: 14
+          if-no-files-found: ignore

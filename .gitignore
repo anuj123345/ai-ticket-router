@@ -9,3 +9,9 @@ dist/
 build/
 .venv/
 venv/
+
+# dbt
+analytics/target/
+analytics/logs/
+analytics/dbt_packages/
+analytics/.user.yml

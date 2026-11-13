@@ -198,7 +198,7 @@ function showPreview(file) {
   document.getElementById('uploadStatus').style.display = 'none';
 }
 
-async function uploadFile() {
+async function uploadFile(replace = false) {
   if (!selectedFile) return;
   const btn = document.getElementById('uploadBtn');
   btn.disabled = true;
@@ -206,17 +206,28 @@ async function uploadFile() {
 
   const formData = new FormData();
   formData.append('file', selectedFile);
+  if (replace) formData.append('replace', '1');
 
   try {
     const res  = await fetch('/onboarding/upload', { method: 'POST', body: formData });
     const data = await readJson(res);
+    if (data.needs_confirmation) {
+      showSchemaChange(data.name, data.changes || []);
+      return;
+    }
     if (data.error) {
       showStatus(data.error, 'error');
       return;
     }
     document.getElementById('filePreview').style.display = 'none';
     selectedFile = null;
-    const dsNote = data.data_studio_warning ? ` ⚠️ Data Studio: ${data.data_studio_warning}` : '';
+    if (data.duplicate) {
+      showStatus('✓ ' + data.message, 'success');
+      return;
+    }
+    const replacedNote = (data.replaced && data.replaced.length)
+      ? ` Replaced the earlier version.${data.changes && data.changes.length ? ' Changes: ' + data.changes.join(' ') : ''}` : '';
+    const dsNote = (data.data_studio_warning ? ` ⚠️ Data Studio: ${data.data_studio_warning}` : '') + replacedNote;
 
     // Step 2: semantic indexing, in short resumable batches.
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Indexing…';
@@ -236,6 +247,8 @@ async function uploadFile() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-cloud-upload me-1"></i> Upload';
+    // Let the same file be picked again (a change event needs a new value).
+    document.getElementById('fileInput').value = '';
   }
 }
 
@@ -292,6 +305,33 @@ async function finishIndexing(docId, total, pending, btn) {
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Retry';
   }
+}
+
+// A same-named spreadsheet with different columns: show what changed and
+// let the admin replace it or keep the current version.
+function showSchemaChange(name, changes) {
+  const el = document.getElementById('uploadStatus');
+  el.style.display = 'block';
+  el.className = 'mt-3 ob-upload-warning';
+  el.textContent = '';
+  const title = document.createElement('div');
+  title.className = 'fw-semibold mb-1';
+  title.textContent = `"${name}" is already uploaded, and this version's columns are different:`;
+  const list = document.createElement('ul');
+  list.className = 'mb-2';
+  changes.forEach(c => { const li = document.createElement('li'); li.textContent = c; list.appendChild(li); });
+  const note = document.createElement('div');
+  note.className = 'small mb-2';
+  note.textContent = 'Replacing removes the current version. Saved charts and column settings for it may need redoing.';
+  const go = document.createElement('button');
+  go.className = 'btn btn-sm btn-warning me-2';
+  go.textContent = 'Replace with this version';
+  go.onclick = () => uploadFile(true);
+  const keep = document.createElement('button');
+  keep.className = 'btn btn-sm btn-outline-secondary';
+  keep.textContent = 'Keep the current version';
+  keep.onclick = () => { el.style.display = 'none'; };
+  el.append(title, list, note, go, keep);
 }
 
 function showStatus(msg, type) {

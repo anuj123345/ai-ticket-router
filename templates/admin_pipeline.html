@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Data Pipeline — Solace{% endblock %}
+
+{% block content %}
+<style>
+  .pipe-wrap { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+  .pipe-title { font-size: 1.4rem; font-weight: 700; color: var(--text); margin: 0; }
+  .pipe-sub { color: var(--text-2); font-size: .9rem; margin: .25rem 0 1.25rem; }
+  .pipe-layers { display: grid; grid-template-columns: repeat(4, 1fr); gap: .75rem; margin-bottom: 1.25rem; }
+  .pipe-layer { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: .85rem 1rem; }
+  .pipe-layer .k { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); font-weight: 600; }
+  .pipe-layer .v { font-size: 1.05rem; font-weight: 600; color: var(--text); margin-top: .15rem; }
+  .pipe-layer .d { font-size: .8rem; color: var(--text-2); margin-top: .15rem; }
+  .pipe-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.1rem; margin-bottom: 1.25rem; }
+  .pipe-card h2 { font-size: 1rem; font-weight: 600; margin: 0 0 .75rem; color: var(--text); }
+  .pipe-check { display: flex; gap: .65rem; padding: .5rem 0; border-top: 1px solid var(--surface-3); }
+  .pipe-check:first-of-type { border-top: 0; }
+  .pipe-check i { font-size: 1.05rem; margin-top: .05rem; }
+  .pipe-ok { color: var(--success); } .pipe-bad { color: var(--danger); } .pipe-warn { color: var(--warning); }
+  .pipe-check .n { font-weight: 600; font-size: .9rem; color: var(--text); }
+  .pipe-check .t { font-size: .88rem; color: var(--text-2); }
+  .pipe-err { white-space: pre-wrap; font-size: .78rem; background: var(--surface-2); border-radius: 6px; padding: .5rem .6rem; margin-top: .35rem; color: var(--text-2); }
+  .pipe-table { width: 100%; font-size: .86rem; border-collapse: collapse; }
+  .pipe-table th { text-align: left; color: var(--text-3); font-weight: 600; font-size: .74rem; text-transform: uppercase; letter-spacing: .05em; padding: .4rem .5rem; border-bottom: 1px solid var(--border); }
+  .pipe-table td { padding: .45rem .5rem; border-bottom: 1px solid var(--surface-3); color: var(--text); vertical-align: top; }
+  .pipe-table td.num, .pipe-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pipe-table { min-width: 560px; }
+  .pipe-table th { white-space: nowrap; }
+  .pipe-badge { display: inline-block; font-size: .72rem; font-weight: 600; padding: .1rem .45rem; border-radius: 999px; }
+  .pipe-badge.success { background: var(--success-bg); color: var(--success); }
+  .pipe-badge.failed  { background: #fef2f2; color: var(--danger); }
+  .pipe-badge.skipped { background: var(--surface-3); color: var(--text-2); }
+  .pipe-badge.running { background: var(--primary-light); color: var(--primary); }
+  .pipe-scroll { overflow-x: auto; }
+  @media (max-width: 760px) { .pipe-layers { grid-template-columns: 1fr 1fr; } }
+</style>
+
+<div class="pipe-wrap">
+  <h1 class="pipe-title"><i class="bi bi-diagram-3 me-2"></i>Data pipeline</h1>
+  <p class="pipe-sub">Tickets flow bronze → silver → gold, rebuilt every hour by dbt. Every upload and every build is logged below.</p>
+
+  {% if error %}
+    <div class="pipe-card"><i class="bi bi-exclamation-triangle pipe-warn me-1"></i>{{ error }}</div>
+  {% else %}
+
+  <div class="pipe-layers">
+    <div class="pipe-layer"><div class="k">Bronze</div><div class="v">{{ "{:,}".format(status.bronze_tickets or 0) }} tickets</div><div class="d">App tables, as written</div></div>
+    <div class="pipe-layer"><div class="k">Silver</div><div class="v">Cleaned views</div><div class="d">Typed, no personal data</div></div>
+    <div class="pipe-layer"><div class="k">Gold</div><div class="v">{% if status.gold_tickets is not none %}{{ "{:,}".format(status.gold_tickets) }} tickets{% else %}Not built{% endif %}</div><div class="d">Star schema, loaded incrementally</div></div>
+    <div class="pipe-layer"><div class="k">History</div><div class="v">SCD Type 2</div><div class="d">Every status change kept</div></div>
+  </div>
+
+  <div class="pipe-card">
+    <h2>Checks {% if status.all_ok %}<span class="pipe-badge success ms-1">All passing</span>{% else %}<span class="pipe-badge failed ms-1">Needs attention</span>{% endif %}</h2>
+    {% for c in status.checks %}
+      <div class="pipe-check">
+        <i class="bi {{ 'bi-check-circle-fill pipe-ok' if c.ok else 'bi-x-circle-fill pipe-bad' }}"></i>
+        <div>
+          <div class="n">{{ c.name }}</div>
+          <div class="t">{{ c.text }}</div>
+          {% if c.error %}<div class="pipe-err">{{ c.error }}</div>{% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  {% if status.by_department %}
+  <div class="pipe-card">
+    <h2>Gold: tickets by department</h2>
+    <div class="pipe-scroll">
+    <table class="pipe-table">
+      <thead><tr><th>Department</th><th class="num">Tickets</th><th class="num">Resolved</th><th class="num">Avg hours to resolve</th></tr></thead>
+      <tbody>
+      {% for d in status.by_department %}
+        <tr><td>{{ d.department }}</td><td class="num">{{ d.tickets }}</td><td class="num">{{ d.resolved }}</td>
+            <td class="num">{{ d.avg_resolution_hours if d.avg_resolution_hours is not none else "—" }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="pipe-card">
+    <h2>Recent runs</h2>
+    {% if not status.runs %}
+      <div class="t" style="color:var(--text-2);font-size:.9rem">No runs recorded yet.</div>
+    {% else %}
+    <div class="pipe-scroll">
+    <table class="pipe-table">
+      <thead><tr><th>Pipeline</th><th>What</th><th>Status</th><th>When</th><th class="num">Seconds</th><th class="num">Rows</th><th>Notes</th></tr></thead>
+      <tbody>
+      {% for r in status.runs %}
+        <tr>
+          <td>{{ r.pipeline }}</td>
+          <td>{{ r.name }}</td>
+          <td><span class="pipe-badge {{ r.status }}">{{ r.status }}</span></td>
+          <td title="{{ r.started_at }}">{{ r.when }}</td>
+          <td class="num">{{ r.seconds if r.seconds is not none else "" }}</td>
+          <td class="num">{{ "{:,}".format(r.rows) if r.rows is not none else "" }}</td>
+          <td>{{ r.summary }}{% if r.error %}<div class="pipe-err">{{ r.error }}</div>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

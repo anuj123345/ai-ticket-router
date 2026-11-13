@@ -1,0 +1,27 @@
+name: solace_analytics
+version: "1.0.0"
+config-version: 2
+profile: solace
+
+model-paths: ["models"]
+snapshot-paths: ["snapshots"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+clean-targets: ["target", "dbt_packages", "logs"]
+
+# Every build, test or snapshot writes one row to public.pipeline_runs,
+# pass or fail. The app's Pipeline page reads it.
+on-run-end:
+  - "{{ log_run_results(results) }}"
+
+models:
+  solace_analytics:
+    staging:
+      # Silver: cleaned and typed, PII removed. Views, so silver is never
+      # stale; switch to tables or incremental if volume grows.
+      +schema: silver
+      +materialized: view
+    marts:
+      # Gold: star schema and aggregates for reporting.
+      +schema: gold
+      +materialized: table

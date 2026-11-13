@@ -40,6 +40,13 @@ class _Query:
         return self
 
     def execute(self):
+        try:
+            return self._execute()
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def _execute(self):
         where = " and ".join(f'"{c}" = %s' for c, _ in self.filters) or "true"
         args = [v for _, v in self.filters]
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:

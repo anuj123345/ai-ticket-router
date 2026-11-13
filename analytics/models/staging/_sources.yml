@@ -1,0 +1,33 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: >
+      Raw tables written by the Solace app, as written. dbt only reads them.
+      They hold personal data (names, emails, ticket text); none of it is
+      carried into silver or gold.
+    schema: public
+    tables:
+      - name: tickets
+        description: One row per support ticket. updated_at is set by a trigger on every change.
+        config:
+          loaded_at_field: updated_at
+          freshness:
+            warn_after: {count: 30, period: day}
+        columns:
+          - name: id
+            data_tests: [unique, not_null]
+          - name: updated_at
+            data_tests: [not_null]
+
+      - name: conversations
+        description: One row per Smart Search question and answer.
+        columns:
+          - name: id
+            data_tests: [unique, not_null]
+
+      - name: feedback
+        description: Thumbs up / down on a Smart Search answer.
+        columns:
+          - name: id
+            data_tests: [unique, not_null]

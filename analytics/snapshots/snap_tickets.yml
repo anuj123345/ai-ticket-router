@@ -1,0 +1,17 @@
+snapshots:
+  - name: snap_tickets
+    description: >
+      SCD Type 2 history of every ticket: a new version each time status,
+      department, priority or team changes, with dbt_valid_from / dbt_valid_to.
+      Built from silver, so the history holds no personal data.
+      A ticket deleted from bronze gets its current version closed.
+    relation: ref('stg_tickets')
+    config:
+      schema: snapshots
+      unique_key: ticket_id
+      strategy: timestamp
+      updated_at: updated_at
+      hard_deletes: invalidate
+    columns:
+      - name: ticket_id
+        data_tests: [not_null]

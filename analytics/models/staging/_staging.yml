@@ -1,0 +1,54 @@
+version: 2
+
+models:
+  - name: stg_tickets
+    description: Silver. One clean, typed row per ticket, without personal data.
+    columns:
+      - name: ticket_id
+        data_tests: [unique, not_null]
+      - name: department
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['IT', 'HR', 'Finance', 'Engineering', 'General', 'Unknown']
+              config:
+                severity: warn   # a new department should be noticed, not block the load
+      - name: priority
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Critical', 'High', 'Medium', 'Low', 'Unknown']
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['pending', 'pending_review', 'resolved', 'escalated', 'unknown']
+      - name: confidence
+        data_tests:
+          - between:
+              arguments: {min_value: 0, max_value: 1}
+      - name: resolution_hours
+        data_tests:
+          - between:
+              arguments: {min_value: 0, max_value: 100000}
+      - name: updated_at
+        data_tests: [not_null]
+
+  - name: stg_conversations
+    description: Silver. One row per Smart Search answer, without question or answer text.
+    columns:
+      - name: conversation_id
+        data_tests: [unique, not_null]
+
+  - name: stg_feedback
+    description: Silver. One row per thumbs up / down.
+    columns:
+      - name: feedback_id
+        data_tests: [unique, not_null]
+      - name: conversation_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_conversations')
+                field: conversation_id

@@ -25,9 +25,14 @@ def pg_dsn():
         conn = psycopg2.connect(dsn, connect_timeout=2)
     except Exception as e:
         pytest.skip(f"No test Postgres available ({type(e).__name__}); SQL engine tests skipped.")
+    # The production tables that predate migrations, then the migrations the
+    # tests rely on. All are safe to re-run.
+    files = [ROOT / "supabase/baseline.sql"]
+    files += sorted(pathlib.Path(p) for p in glob.glob(str(ROOT / "supabase/migrations/*data_studio*.sql")))
+    files += sorted(pathlib.Path(p) for p in glob.glob(str(ROOT / "supabase/migrations/*data_platform*.sql")))
     with conn, conn.cursor() as cur:
-        for path in sorted(glob.glob(str(ROOT / "supabase/migrations/*data_studio*.sql"))):
-            cur.execute(pathlib.Path(path).read_text())
+        for path in files:
+            cur.execute(path.read_text())
     conn.close()
     return dsn
 
@@ -39,6 +44,7 @@ def pg(pg_dsn, monkeypatch):
     client = PgClient(pg_dsn)
     client.sql("truncate public.datasets cascade")
     client.sql("truncate public.documents cascade")
+    client.sql("reset role; truncate public.pipeline_runs; set role service_role")
     monkeypatch.setattr(dataset_store, "get_client", lambda: client)
     yield client
     client.conn.close()

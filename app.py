@@ -507,9 +507,14 @@ def onboarding_upload():
     if len(file_bytes) == 0:
         return jsonify({"error": "File is empty."}), 400
 
+    from services.doc_processor import SchemaChangeNeedsConfirmation
     try:
-        result = process_and_store(name, file_bytes, ext)
+        result = process_and_store(name, file_bytes, ext,
+                                   replace=request.form.get("replace") == "1")
         return jsonify(result)
+    except SchemaChangeNeedsConfirmation as e:
+        return jsonify({"needs_confirmation": True, "name": name,
+                        "changes": e.lines, "diff": e.diff}), 409
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
@@ -587,6 +592,22 @@ def admin_health():
             result["candidates"] = [f.result() for f in cand_f]
     result["all_ok"] = all(result[k]["ok"] for k in ("chat_model", "power_model", "embed_model"))
     return jsonify(result)
+
+
+@app.route("/admin/pipeline")
+@admin_required
+def admin_pipeline():
+    """Data pipeline health: bronze vs gold reconciliation, dbt runs, uploads."""
+    from services import pipeline_status
+    try:
+        status, error = pipeline_status.load(), None
+    except Exception as e:
+        app.logger.exception("Pipeline status failed")
+        status = None
+        error = ("The pipeline tables aren't set up yet. Run "
+                 "supabase/migrations/20261114100000_data_platform.sql in Supabase."
+                 if "pipeline_status" in str(e) else f"Could not load pipeline status ({type(e).__name__}).")
+    return render_template("admin_pipeline.html", status=status, error=error)
 
 
 @app.route("/admin/search-check")
